@@ -10,6 +10,14 @@ Dự án được chia làm 2 phần độc lập: **Backend (Python/FastAPI)** 
 - **Node.js 18+** (dành cho Frontend)
 - **pnpm** (Trình quản lý package cho Frontend)
 
+### 💻 Yêu cầu phần cứng (Hardware Requirements)
+Dự án sử dụng mô hình AI (PyTorch + VoxCPM2), nên phần cứng đóng vai trò quan trọng:
+- **Card đồ họa (VGA):** 
+  - **Khuyến nghị:** NVIDIA RTX (từ 2060, 3060, 4060 trở lên) với VRAM >= 6GB. Hệ thống sẽ sử dụng kiến trúc CUDA để sinh âm thanh cực kỳ nhanh (2-3 giây).
+  - **Laptop hoặc VGA AMD/Intel:** Các máy tính dùng VGA AMD (như Radeon 780M) hoặc không có card rời NVIDIA vẫn **chạy được bình thường**. Hệ thống sẽ tự động chuyển sang tính toán bằng **CPU**. Việc cài đặt không có gì thay đổi, tuy nhiên thời gian xử lý (Generate) sẽ lâu hơn một chút (khoảng 10-20 giây) tùy thuộc vào sức mạnh của CPU.
+- **Bộ nhớ (RAM):** Tối thiểu **16GB** (Khuyến nghị 24GB+). Rất quan trọng khi chạy bằng CPU hoặc khi load mô hình vào bộ nhớ.
+- **Ổ cứng:** Bắt buộc sử dụng **SSD** (ưu tiên NVMe) để có thể nạp mô hình `.safetensors` nặng vài GB một cách nhanh chóng.
+
 ---
 
 ## 🚀 Hướng dẫn cài đặt và chạy dự án
