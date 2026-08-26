@@ -55,6 +55,9 @@ def generate_audio(
     prompt_wav_path: str | None = None,
     prompt_text: str | None = None,
     normalize: bool = True,
+    seed: int | None = 42,
+    speed: float = 1.0,
+    pitch: float = 0.0,
 ) -> None:
     """
     Goi model.generate() va luu ket qua ra file WAV.
@@ -75,7 +78,12 @@ def generate_audio(
     normalize         : Bat text normalization (so, ngay thang...).
     """
     model = get_model()
-
+    
+    if seed is not None:
+        import torch
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
     kwargs = dict(
         text=text,
         cfg_value=cfg_value,
@@ -107,8 +115,14 @@ def generate_audio(
     # Lấy sample rate thực tế từ model (16000 Hz)
     actual_sr = model.tts_model.sample_rate
 
+    # Audio DSP: Điều chỉnh Speed và Pitch trực tiếp trên NumPy array
+    if speed != 1.0 or pitch != 0.0:
+        import librosa
+        if speed != 1.0:
+            audio = librosa.effects.time_stretch(audio, rate=speed)
+        if pitch != 0.0:
+            audio = librosa.effects.pitch_shift(audio, sr=actual_sr, n_steps=pitch)
+
     # Ghi WAV — khớp 100% với cách CLI chính thức của voxcpm:
-    # sf.write(output_path, audio_array, model.tts_model.sample_rate)
     sf.write(str(output_path), audio, actual_sr)
     logger.info(f"Saved: {output_path.name} | {len(audio)/actual_sr:.2f}s | sr={actual_sr}")
-

@@ -5,34 +5,69 @@ export interface AudioRecord {
   text: string
   url: string
   timestamp: number
+  voiceId?: string | null
+  voiceName?: string
+  cfg_value?: number
+  inference_timesteps?: number
+  seed?: number
+  speed?: number
+  pitch?: number
+}
+
+export interface Voice {
+  id: string
+  name: string
+  gender: string
+  description: string
+  icon: string
+  prompt_text: string
+  url: string
 }
 
 interface TTSState {
   text: string
   cfg_value: number
   inference_timesteps: number
+  seed: number
+  speed: number
+  pitch: number
   isLoading: boolean
   audioUrl: string | null
   history: AudioRecord[]
+  voices: Voice[]
+  selectedVoiceId: string | null
   setText: (text: string) => void
   setCfgValue: (val: number) => void
   setTimesteps: (val: number) => void
+  setSeed: (val: number) => void
+  setSpeed: (val: number) => void
+  setPitch: (val: number) => void
   setIsLoading: (val: boolean) => void
   setAudioUrl: (url: string | null) => void
   addHistory: (record: Omit<AudioRecord, 'id' | 'timestamp'>) => void
   removeHistory: (id: string) => void
+  fetchVoices: () => Promise<void>
+  setSelectedVoiceId: (id: string | null) => void
 }
 
-export const useTTSStore = create<TTSState>((set) => ({
+export const useTTSStore = create<TTSState>((set, get) => ({
   text: '',
   cfg_value: 2.0,
   inference_timesteps: 10,
+  seed: 42,
+  speed: 1.0,
+  pitch: 0.0,
   isLoading: false,
   audioUrl: null,
   history: JSON.parse(localStorage.getItem('tts_history') || '[]'),
+  voices: [],
+  selectedVoiceId: null,
   setText: (text) => set({ text }),
   setCfgValue: (cfg_value) => set({ cfg_value }),
   setTimesteps: (inference_timesteps) => set({ inference_timesteps }),
+  setSeed: (seed) => set({ seed }),
+  setSpeed: (speed) => set({ speed }),
+  setPitch: (pitch) => set({ pitch }),
   setIsLoading: (isLoading) => set({ isLoading }),
   setAudioUrl: (audioUrl) => set({ audioUrl }),
   addHistory: (record) => set((state) => {
@@ -50,4 +85,19 @@ export const useTTSStore = create<TTSState>((set) => ({
     localStorage.setItem('tts_history', JSON.stringify(newHistory))
     return { history: newHistory }
   }),
+  fetchVoices: async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/voices')
+      if (res.ok) {
+        const data = await res.json()
+        set({ voices: data })
+        if (data.length > 0 && !get().selectedVoiceId) {
+          set({ selectedVoiceId: data[0].id })
+        }
+      }
+    } catch (e) {
+      console.error("Lỗi khi tải danh sách giọng mẫu:", e)
+    }
+  },
+  setSelectedVoiceId: (id) => set({ selectedVoiceId: id }),
 }))

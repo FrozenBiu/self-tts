@@ -10,6 +10,7 @@ Swagger UI:
 
 import logging
 import uuid
+import hashlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -32,6 +33,8 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).parent
 OUTPUTS_DIR = BASE_DIR / "outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
+PRESETS_DIR = BASE_DIR / "presets"
+PRESETS_DIR.mkdir(exist_ok=True)
 
 
 # ─── Lifespan (thay thế on_event("startup") đã deprecated) ─────────────────
@@ -72,6 +75,7 @@ app.add_middleware(
 # ─── Static Files (phục vụ file .wav đã tạo) ─────────────────────────────────
 # Frontend gọi URL: http://localhost:8000/outputs/<filename>.wav
 app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
+app.mount("/presets", StaticFiles(directory=str(PRESETS_DIR)), name="presets")
 
 
 # ─── Request / Response Schemas ──────────────────────────────────────────────
@@ -109,6 +113,26 @@ class TTSRequest(BaseModel):
         default=None,
         description="Transcript chinh xac cua prompt_wav_path. Bat buoc neu truyen prompt_wav_path.",
     )
+    voice_id: str | None = Field(
+        default=None,
+        description="(Tùy chọn) ID của giọng mẫu đã được định nghĩa trong hệ thống (sẽ tự động resolve thành prompt_wav_path và prompt_text).",
+    )
+    seed: int | None = Field(
+        default=42,
+        description="Seed để cố định tính ngẫu nhiên của mô hình (Consistency).",
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Tốc độ đọc (1.0 là bình thường, 1.2 là nhanh 20%).",
+    )
+    pitch: float = Field(
+        default=0.0,
+        ge=-12.0,
+        le=12.0,
+        description="Điều chỉnh cao độ (bước âm - nửa cung). 0 là bình thường.",
+    )
 
 
 class TTSResponse(BaseModel):
@@ -141,6 +165,20 @@ async def health_check():
     )
 
 
+@app.get(
+    "/api/voices",
+    summary="Lấy danh sách các giọng đọc mẫu",
+    tags=["TTS"],
+)
+async def get_voices():
+    import json
+    voices_json = PRESETS_DIR / "voices.json"
+    if not voices_json.exists():
+        return []
+    with open(voices_json, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
 def _cleanup_old_files(keep_latest: int = 50) -> None:
     """
     Dọn dẹp outputs/ nếu vượt quá `keep_latest` file,
@@ -170,15 +208,41 @@ async def text_to_speech(
     """
     ## Tổng hợp giọng nói (Text-to-Speech)
 
-    Nhận văn bản, gọi mô hình VoxCPM2 để tạo audio WAV,
-    và trả về URL để Frontend phát trực tiếp.
-
     **Lưu ý:** Lần gọi đầu tiên sau khi server khởi động có thể chậm hơn
     do GPU warm-up. Các lần gọi tiếp theo sẽ nhanh hơn đáng kể.
     """
-    # Tạo tên file unique tránh ghi đè
-    filename = f"tts_{uuid.uuid4().hex[:12]}.wav"
+    # Tạo Hash để làm Cache Key
+    cache_str = f"{request.text}_{request.voice_id}_{request.cfg_value}_{request.inference_timesteps}_{request.normalize}_{request.seed}_{request.speed}_{request.pitch}"
+    file_hash = hashlib.md5(cache_str.encode('utf-8')).hexdigest()
+    filename = f"tts_{file_hash}.wav"
     output_path = OUTPUTS_DIR / filename
+
+    if output_path.exists():
+        logger.info(f"⚡ CACHE HIT: Tái sử dụng {filename}")
+        output_path.touch() # Cập nhật thời gian mtime để không bị xóa bởi _cleanup_old_files
+        audio_url = f"http://localhost:8000/outputs/{filename}"
+        return TTSResponse(
+            message="Tổng hợp thành công (Cache Hit)!",
+            filename=filename,
+            audio_url=audio_url,
+        )
+
+    logger.info(f"⏳ CACHE MISS: Bắt đầu sinh mới {filename}")
+    
+    prompt_wav_path = request.prompt_wav_path
+    prompt_text = request.prompt_text
+
+    if request.voice_id:
+        import json
+        voices_json = PRESETS_DIR / "voices.json"
+        if voices_json.exists():
+            with open(voices_json, 'r', encoding='utf-8') as f:
+                voices = json.load(f)
+            for v in voices:
+                if v["id"] == request.voice_id:
+                    prompt_wav_path = str(PRESETS_DIR / f"{v['id']}.wav")
+                    prompt_text = v["prompt_text"]
+                    break
 
     try:
         # Chạy inference (CPU-blocking) — vẫn OK vì đây là local server
@@ -188,9 +252,12 @@ async def text_to_speech(
             output_path=output_path,
             cfg_value=request.cfg_value,
             inference_timesteps=request.inference_timesteps,
-            prompt_wav_path=request.prompt_wav_path,
-            prompt_text=request.prompt_text,
+            prompt_wav_path=prompt_wav_path,
+            prompt_text=prompt_text,
             normalize=request.normalize,
+            seed=request.seed,
+            speed=request.speed,
+            pitch=request.pitch,
         )
     except Exception as exc:
         logger.exception("❌ Lỗi khi tổng hợp giọng nói")

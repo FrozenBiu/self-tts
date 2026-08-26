@@ -1,0 +1,83 @@
+[
+  {
+    "id": "male_1",
+    "name": "Nam Điềm Đạm",
+    "gender": "male",
+    "description": "Podcast tâm lý",
+    "icon": "podcasts",
+    "prompt_text": "Đôi khi, việc chậm lại một nhịp giữa cuộc sống hối hả này mới là cách tốt nhất để chúng ta nhìn nhận lại những giá trị cốt lõi của bản thân.",
+    "url": "http://localhost:8000/presets/male_1.wav"
+  },
+  {
+    "id": "male_2",
+    "name": "Nam Trầm Tĩnh",
+    "gender": "male",
+    "description": "Thiền định",
+    "icon": "self_improvement",
+    "prompt_text": "Hãy hít một hơi thật sâu, từ từ thở ra, và giải phóng mọi căng thẳng trong cơ thể bạn lúc này.",
+    "url": "http://localhost:8000/presets/male_2.wav"
+  },
+  {
+    "id": "male_3",
+    "name": "Nam Sư Phạm",
+    "gender": "male",
+    "description": "Bài giảng trực tuyến",
+    "icon": "school",
+    "prompt_text": "Xin chào các em học sinh. Trong bài học ngày hôm nay, chúng ta sẽ cùng phân tích cấu trúc cơ bản của một mạng lưới nơ-ron nhân tạo.",
+    "url": "http://localhost:8000/presets/male_3.wav"
+  },
+  {
+    "id": "male_4",
+    "name": "Nam Tài Liệu",
+    "gender": "male",
+    "description": "Thuyết minh khoa học",
+    "icon": "movie",
+    "prompt_text": "Bên dưới lớp băng lạnh giá của Nam Cực, một hệ sinh thái kỳ diệu vẫn đang âm thầm sinh sôi và phát triển một cách mãnh liệt.",
+    "url": "http://localhost:8000/presets/male_4.wav"
+  },
+  {
+    "id": "female_1",
+    "name": "Nữ Dịu Dàng",
+    "gender": "female",
+    "description": "Giới thiệu phần mềm",
+    "icon": "smart_display",
+    "prompt_text": "Xin chào. Chào mừng các bạn đến với video hướng dẫn. Bước đầu tiên, hãy nhấn vào nút cài đặt ở góc trên bên phải màn hình.",
+    "url": "http://localhost:8000/presets/female_1.wav"
+  },
+  {
+    "id": "female_2",
+    "name": "Nữ Nhí Nhảnh",
+    "gender": "female",
+    "description": "Review sản phẩm",
+    "icon": "star",
+    "prompt_text": "Wow các bạn ơi, sản phẩm này thực sự rất đỉnh luôn, mình đã dùng thử và hoàn toàn bị thuyết phục.",
+    "url": "http://localhost:8000/presets/female_2.wav"
+  },
+  {
+    "id": "female_3",
+    "name": "Nữ Học Thuật 4",
+    "gender": "female",
+    "description": "Thực hành triển khai",
+    "icon": "cloud_upload",
+    "prompt_text": "Trong video tiếp theo, mình sẽ hướng dẫn chi tiết cách triển khai dự án lên máy chủ đám mây chỉ với ba thao tác đơn giản.",
+    "url": "http://localhost:8000/presets/female_3.wav"
+  },
+  {
+    "id": "female_4",
+    "name": "Nữ Chuyên Viên",
+    "gender": "female",
+    "description": "Tư vấn kỹ thuật",
+    "icon": "support_agent",
+    "prompt_text": "Xin chào. Chúng tôi khuyên bạn nên sao lưu dữ liệu trước khi thực hiện các bước cấu hình quan trọng.",
+    "url": "http://localhost:8000/presets/female_4.wav"
+  },
+  {
+    "id": "female_5",
+    "name": "Nữ Hỗ Trợ",
+    "gender": "female",
+    "description": "Khắc phục sự cố",
+    "icon": "computer",
+    "prompt_text": "Bạn vui lòng khởi động lại máy tính, sau đó cắm lại cáp mạng để hệ thống thiết lập lại địa chỉ IP một cách tự động nhé.",
+    "url": "http://localhost:8000/presets/female_5.wav"
+  }
+]

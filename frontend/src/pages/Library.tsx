@@ -28,16 +28,46 @@ export default function Library() {
                 className="p-6 hover:bg-surface-variant/40 transition-colors flex flex-col gap-4"
               >
                 <div className="flex justify-between items-start gap-4">
-                  <div className="flex-1">
+                  <div className="flex-1 flex flex-col gap-3">
                     <p
-                      className="font-body-md text-on-surface leading-relaxed mb-2 line-clamp-2"
+                      className="font-body-md text-on-surface leading-relaxed line-clamp-2"
                       title={record.text}
                     >
                       "{record.text}"
                     </p>
-                    <p className="font-mono-data text-mono-data text-on-surface-variant text-xs">
-                      ID: {record.id.toUpperCase()} •{" "}
-                      {new Date(record.timestamp).toLocaleString("vi-VN")}
+                    
+                    {/* Tham số cấu hình */}
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {record.voiceName && (
+                        <span className="inline-flex items-center gap-1.5 rounded bg-primary/10 px-2 py-1 text-[11px] font-label-caps text-primary border border-primary/20">
+                          <span className="material-symbols-outlined text-[14px]">record_voice_over</span>
+                          {record.voiceName}
+                        </span>
+                      )}
+                      {record.speed !== undefined && (
+                        <span className="inline-flex items-center rounded bg-surface-variant px-2 py-1 text-[11px] font-mono-data text-on-surface-variant border border-white/5">
+                          Speed: {record.speed.toFixed(2)}x
+                        </span>
+                      )}
+                      {record.pitch !== undefined && (
+                        <span className="inline-flex items-center rounded bg-surface-variant px-2 py-1 text-[11px] font-mono-data text-on-surface-variant border border-white/5">
+                          Pitch: {record.pitch > 0 ? '+' : ''}{record.pitch.toFixed(1)}
+                        </span>
+                      )}
+                      {record.seed !== undefined && (
+                        <span className="inline-flex items-center rounded bg-surface-variant px-2 py-1 text-[11px] font-mono-data text-on-surface-variant border border-white/5">
+                          Seed: {record.seed}
+                        </span>
+                      )}
+                      {record.cfg_value !== undefined && (
+                        <span className="inline-flex items-center rounded bg-surface-variant px-2 py-1 text-[11px] font-mono-data text-on-surface-variant border border-white/5">
+                          CFG: {record.cfg_value}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="font-mono-data text-mono-data text-on-surface-variant/50 text-xs mt-1">
+                      ID: {record.id.toUpperCase()} • {new Date(record.timestamp).toLocaleString("vi-VN")}
                     </p>
                   </div>
                   <div className="flex gap-2">
@@ -65,7 +95,8 @@ export default function Library() {
                 <audio
                   controls
                   src={record.url}
-                  className="w-full h-10 [&::-webkit-media-controls-panel]:bg-surface-container-high [&::-webkit-media-controls-current-time-display]:text-white/80 [&::-webkit-media-controls-time-remaining-display]:text-white/80 rounded"
+                  className="w-full h-10 rounded focus:outline-none"
+                  style={{ colorScheme: 'dark' }}
                 />
               </div>
             ))}
