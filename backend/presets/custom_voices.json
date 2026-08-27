@@ -1,0 +1,11 @@
+[
+  {
+    "id": "custom_0ae79889",
+    "name": "Mtikcode",
+    "gender": "female",
+    "description": "Giọng tự tạo",
+    "icon": "record_voice_over",
+    "prompt_text": "Giản hơn cho người dùng, thử nghĩ đến cái bếp điện ở nhà bạn, bạn muốn bật bếp lên thì bấm cái nút ở trên bếp, xong, hết. Không cần quan tâm bên trong dòng điện chạy ra sao",
+    "url": "http://localhost:8000/presets/custom/custom_0ae79889.wav"
+  }
+]

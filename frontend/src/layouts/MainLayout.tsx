@@ -78,15 +78,15 @@ export function MainLayout() {
             </Link>
           </li>
           <li>
-            <a
+            <Link
+              to="/cloning-voice"
               className="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface transition-all duration-300 ease-in-out font-label-caps text-label-caps"
-              href="#"
             >
               <span className="material-symbols-outlined">
                 record_voice_over
               </span>
-              Giọng đọc
-            </a>
+              Cloning Voice
+            </Link>
           </li>
           <li>
             <a
@@ -138,15 +138,23 @@ export function MainLayout() {
               <div className="absolute top-0 w-8 h-1 bg-primary rounded-b-full"></div>
             )}
           </Link>
-          <a
-            className="flex flex-col items-center justify-center w-full h-full text-on-surface-variant hover:text-on-surface transition-colors"
-            href="#"
+          <Link
+            to="/cloning-voice"
+            className={cn(
+              "flex flex-col items-center justify-center w-full h-full relative transition-colors",
+              location.pathname === "/cloning-voice"
+                ? "text-primary"
+                : "text-on-surface-variant hover:text-on-surface",
+            )}
           >
             <span className="material-symbols-outlined mb-1">
               record_voice_over
             </span>
-            <span className="text-[10px] font-label-caps">Giọng đọc</span>
-          </a>
+            <span className="text-[10px] font-label-caps">Cloning Voice</span>
+            {location.pathname === "/cloning-voice" && (
+              <div className="absolute top-0 w-8 h-1 bg-primary rounded-b-full"></div>
+            )}
+          </Link>
         </div>
       </nav>
     </div>

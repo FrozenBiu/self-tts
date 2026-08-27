@@ -22,6 +22,7 @@ export interface Voice {
   icon: string
   prompt_text: string
   url: string
+  type?: 'preset' | 'custom'
 }
 
 interface TTSState {
@@ -48,6 +49,7 @@ interface TTSState {
   removeHistory: (id: string) => void
   fetchVoices: () => Promise<void>
   setSelectedVoiceId: (id: string | null) => void
+  deleteCustomVoice: (id: string) => Promise<void>
 }
 
 export const useTTSStore = create<TTSState>((set, get) => ({
@@ -97,6 +99,24 @@ export const useTTSStore = create<TTSState>((set, get) => ({
       }
     } catch (e) {
       console.error("Lỗi khi tải danh sách giọng mẫu:", e)
+    }
+  },
+  deleteCustomVoice: async (id) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/voices/custom/${id}`, {
+        method: 'DELETE'
+      })
+      if (res.ok) {
+        set((state) => ({
+          voices: state.voices.filter(v => v.id !== id),
+          selectedVoiceId: state.selectedVoiceId === id ? null : state.selectedVoiceId
+        }))
+      } else {
+        throw new Error('Không thể xoá giọng đọc')
+      }
+    } catch (e) {
+      console.error("Lỗi khi xoá giọng:", e)
+      throw e
     }
   },
   setSelectedVoiceId: (id) => set({ selectedVoiceId: id }),

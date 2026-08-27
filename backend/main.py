@@ -14,10 +14,11 @@ import hashlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+import shutil
 
 from model_handler import load_model, generate_audio
 
@@ -35,6 +36,12 @@ OUTPUTS_DIR = BASE_DIR / "outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
 PRESETS_DIR = BASE_DIR / "presets"
 PRESETS_DIR.mkdir(exist_ok=True)
+CUSTOM_VOICES_DIR = PRESETS_DIR / "custom"
+CUSTOM_VOICES_DIR.mkdir(exist_ok=True)
+CUSTOM_VOICES_JSON = PRESETS_DIR / "custom_voices.json"
+if not CUSTOM_VOICES_JSON.exists():
+    with open(CUSTOM_VOICES_JSON, 'w', encoding='utf-8') as f:
+        f.write("[]")
 
 
 # ─── Lifespan (thay thế on_event("startup") đã deprecated) ─────────────────
@@ -173,10 +180,114 @@ async def health_check():
 async def get_voices():
     import json
     voices_json = PRESETS_DIR / "voices.json"
-    if not voices_json.exists():
-        return []
-    with open(voices_json, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    
+    preset_voices = []
+    if voices_json.exists():
+        with open(voices_json, 'r', encoding='utf-8') as f:
+            preset_voices = json.load(f)
+            for v in preset_voices:
+                v['type'] = 'preset'
+
+    custom_voices = []
+    if CUSTOM_VOICES_JSON.exists():
+        with open(CUSTOM_VOICES_JSON, 'r', encoding='utf-8') as f:
+            custom_voices = json.load(f)
+            for v in custom_voices:
+                v['type'] = 'custom'
+                
+    return preset_voices + custom_voices
+
+@app.post(
+    "/api/voices/clone",
+    summary="Clone giọng đọc từ file tải lên",
+    tags=["TTS"],
+)
+async def clone_voice(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    description: str = Form("Giọng tự tạo"),
+    gender: str = Form("all"),
+    icon: str = Form("record_voice_over"),
+    prompt_text: str = Form(...),
+):
+    import librosa
+    import soundfile as sf
+    import json
+    import uuid
+
+    if not file.filename.endswith((".wav", ".mp3", ".m4a", ".webm")):
+        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file wav, mp3, m4a, webm")
+
+    custom_id = f"custom_{uuid.uuid4().hex[:8]}"
+    temp_path = BASE_DIR / f"temp_{custom_id}_{file.filename}"
+    
+    try:
+        # Save temp file
+        with open(temp_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+            
+        # Đọc và tự động cắt lấy 10 giây đầu tiên, resample về 16000Hz (chuẩn VoxCPM2)
+        y, sr = librosa.load(temp_path, sr=16000, duration=10.0)
+        
+        # Save to custom directory
+        wav_path = CUSTOM_VOICES_DIR / f"{custom_id}.wav"
+        sf.write(wav_path, y, sr)
+        
+        # Append to custom_voices.json
+        custom_voices = []
+        if CUSTOM_VOICES_JSON.exists():
+            with open(CUSTOM_VOICES_JSON, 'r', encoding='utf-8') as f:
+                custom_voices = json.load(f)
+                
+        new_voice = {
+            "id": custom_id,
+            "name": name,
+            "gender": gender,
+            "description": description,
+            "icon": icon,
+            "prompt_text": prompt_text,
+            "url": f"http://localhost:8000/presets/custom/{custom_id}.wav"
+        }
+        
+        custom_voices.append(new_voice)
+        with open(CUSTOM_VOICES_JSON, 'w', encoding='utf-8') as f:
+            json.dump(custom_voices, f, ensure_ascii=False, indent=2)
+            
+        return {"message": "Tạo giọng đọc thành công", "voice": new_voice}
+        
+    except Exception as e:
+        logger.exception("Lỗi khi clone voice")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+
+@app.delete(
+    "/api/voices/custom/{voice_id}",
+    summary="Xoá giọng đọc tự tạo",
+    tags=["TTS"],
+)
+async def delete_custom_voice(voice_id: str):
+    import json
+    if not voice_id.startswith("custom_"):
+        raise HTTPException(status_code=400, detail="Chỉ được phép xoá giọng tự tạo")
+        
+    if CUSTOM_VOICES_JSON.exists():
+        with open(CUSTOM_VOICES_JSON, 'r', encoding='utf-8') as f:
+            custom_voices = json.load(f)
+            
+        filtered_voices = [v for v in custom_voices if v["id"] != voice_id]
+        
+        if len(filtered_voices) < len(custom_voices):
+            with open(CUSTOM_VOICES_JSON, 'w', encoding='utf-8') as f:
+                json.dump(filtered_voices, f, ensure_ascii=False, indent=2)
+                
+            # Xoá file wav
+            wav_path = CUSTOM_VOICES_DIR / f"{voice_id}.wav"
+            wav_path.unlink(missing_ok=True)
+            return {"message": "Đã xoá giọng đọc"}
+            
+    raise HTTPException(status_code=404, detail="Không tìm thấy giọng đọc")
 
 
 def _cleanup_old_files(keep_latest: int = 50) -> None:
@@ -235,14 +346,26 @@ async def text_to_speech(
     if request.voice_id:
         import json
         voices_json = PRESETS_DIR / "voices.json"
+        
+        # Load preset voices
+        all_voices = []
         if voices_json.exists():
             with open(voices_json, 'r', encoding='utf-8') as f:
-                voices = json.load(f)
-            for v in voices:
-                if v["id"] == request.voice_id:
+                all_voices.extend(json.load(f))
+                
+        # Load custom voices
+        if CUSTOM_VOICES_JSON.exists():
+            with open(CUSTOM_VOICES_JSON, 'r', encoding='utf-8') as f:
+                all_voices.extend(json.load(f))
+                
+        for v in all_voices:
+            if v["id"] == request.voice_id:
+                if request.voice_id.startswith("custom_"):
+                    prompt_wav_path = str(CUSTOM_VOICES_DIR / f"{v['id']}.wav")
+                else:
                     prompt_wav_path = str(PRESETS_DIR / f"{v['id']}.wav")
-                    prompt_text = v["prompt_text"]
-                    break
+                prompt_text = v["prompt_text"]
+                break
 
     try:
         # Chạy inference (CPU-blocking) — vẫn OK vì đây là local server
