@@ -7,5 +7,14 @@
     "icon": "record_voice_over",
     "prompt_text": "Giản hơn cho người dùng, thử nghĩ đến cái bếp điện ở nhà bạn, bạn muốn bật bếp lên thì bấm cái nút ở trên bếp, xong, hết. Không cần quan tâm bên trong dòng điện chạy ra sao",
     "url": "http://localhost:8000/presets/custom/custom_0ae79889.wav"
+  },
+  {
+    "id": "custom_e5c1ed9b",
+    "name": "Minh Quân Pro",
+    "gender": "male",
+    "description": "Giọng tự tạo",
+    "icon": "record_voice_over",
+    "prompt_text": "Xin chào mình là Minh Quân Pro, một giọng đọc được tối ưu cho khả năng code-switching giữa tiếng Việt và tiếng Anh. Với chất giọng tự nhiên, mượt mà như người thật cùng khả năng chuyển ngữ liền mạch. Mình phù hợp với các nội dung podcast, review",
+    "url": "http://localhost:8000/presets/custom/custom_e5c1ed9b.wav"
   }
 ]

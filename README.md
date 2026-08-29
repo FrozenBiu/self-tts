@@ -36,13 +36,23 @@ python -m venv venv
 # 3. Kích hoạt môi trường ảo (trên Windows)
 .\venv\Scripts\activate
 
-# 4. Cài đặt các thư viện cần thiết
+# 4. Cài đặt PyTorch hỗ trợ CUDA 12.4 (Quan trọng cho máy có card NVIDIA)
+# Lưu ý: Chạy lệnh này TRƯỚC để ép tải bản GPU, tránh tải nhầm bản CPU
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# 5. Cài đặt các thư viện cần thiết
 # Lưu ý: Cần sử dụng voxcpm==2.0.3 để tránh lỗi nhiễu âm thanh trên Windows
 pip install -r requirements.txt
 
-# 5. Khởi chạy Server
+# 6. Khởi chạy Server
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+> 💡 **Khắc phục sự cố PyTorch (CPU):** Nếu bạn lỡ chạy cài file `requirements.txt` trước Bước 4, `pip` có thể đã tải nhầm bản CPU hoặc bản không tối ưu. Để sửa lại mà không cần xóa môi trường, hãy chạy 2 lệnh sau:
+> ```bash
+> pip uninstall torch torchvision torchaudio -y
+> pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+> ```
 
 _Server Backend sẽ chạy tại địa chỉ: `http://localhost:8000`_
 
