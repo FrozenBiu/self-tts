@@ -121,7 +121,16 @@ def generate_audio(
         logger.info("Mode: Voice Design (Zero-shot)")
 
     logger.info(f"Đang tổng hợp: '{text[:60]}…'")
-    wav = model.generate(**kwargs)
+    
+    import torch
+    device_type = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    if VOXCPM_HALF_PRECISION and device_type == "cuda":
+        # Tự động đồng bộ kiểu dữ liệu (dtype) cho đầu vào để khớp với mô hình đã ép kiểu FP16
+        with torch.autocast(device_type=device_type, dtype=torch.float16):
+            wav = model.generate(**kwargs)
+    else:
+        wav = model.generate(**kwargs)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
