@@ -11,13 +11,19 @@ export const convertToWav = async (file: Blob | File): Promise<Blob> => {
 
 function audioBufferToWav(buffer: AudioBuffer): Blob {
   const numOfChan = 1; // Mono channel
-  const length = buffer.length * numOfChan * 2 + 44;
-  const bufferArr = new ArrayBuffer(length);
-  const view = new DataView(bufferArr);
   const sampleRate = buffer.sampleRate;
+  
+  // Tối ưu: Cắt lấy tối đa 10 giây đầu tiên
+  const MAX_SECONDS = 10;
+  const maxSamples = MAX_SECONDS * sampleRate;
+  const actualSamples = Math.min(buffer.length, maxSamples);
+  
+  const dataLength = actualSamples * numOfChan * 2;
+  const bufferLength = dataLength + 44;
+  const bufferArr = new ArrayBuffer(bufferLength);
+  const view = new DataView(bufferArr);
 
   let offset = 0;
-  let pos = 0;
 
   function setUint16(data: number) {
     view.setUint16(offset, data, true);
@@ -31,7 +37,7 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
 
   // RIFF chunk descriptor
   setUint32(0x46464952); // "RIFF"
-  setUint32(length - 8); // file length - 8
+  setUint32(bufferLength - 8); // file length - 8
   setUint32(0x45564157); // "WAVE"
 
   // fmt sub-chunk
@@ -42,11 +48,11 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
   setUint32(sampleRate);
   setUint32(sampleRate * 2 * numOfChan); // avg. bytes/sec
   setUint16(numOfChan * 2); // block-align
-  setUint16(16); // 16-bit (hardcoded in this demo)
+  setUint16(16); // 16-bit (hardcoded)
 
   // data sub-chunk
   setUint32(0x61746164); // "data" - chunk
-  setUint32(length - pos - 4); // chunk length
+  setUint32(dataLength); // chunk length
 
   // Write interleaved data (mix down to mono if multiple channels)
   const channelData = [];
@@ -54,7 +60,8 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
     channelData.push(buffer.getChannelData(i));
   }
 
-  while (pos < buffer.length) {
+  let pos = 0;
+  while (pos < actualSamples) {
     let sample = 0;
     for (let i = 0; i < buffer.numberOfChannels; i++) {
       sample += channelData[i][pos];

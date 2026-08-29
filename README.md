@@ -54,6 +54,12 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 > pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 > ```
 
+### 1.1. Cấu hình tối ưu AI theo dung lượng VRAM (Quan trọng cho máy yếu)
+Dự án hỗ trợ tuỳ biến cấu hình phần cứng mà không cần sửa code. Nếu máy bạn có VRAM thấp (<= 8GB) hoặc cấu hình siêu mạnh (>= 12GB), hãy làm theo các bước sau:
+1. Vào thư mục `backend`.
+2. Đổi tên (hoặc copy) file `.env.example` thành `.env`.
+3. Mở file `.env` lên, bên trong đã có sẵn hướng dẫn chi tiết bằng tiếng Việt để bạn Bật/Tắt các tính năng (như Ép chạy nửa độ chính xác - Half Precision) dựa trên dung lượng VRAM thực tế của máy.
+
 _Server Backend sẽ chạy tại địa chỉ: `http://localhost:8000`_
 
 ### 2. Khởi động Frontend (Giao diện Web)

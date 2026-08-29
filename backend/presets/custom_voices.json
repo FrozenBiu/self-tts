@@ -16,5 +16,14 @@
     "icon": "record_voice_over",
     "prompt_text": "Xin chào mình là Minh Quân Pro, một giọng đọc được tối ưu cho khả năng code-switching giữa tiếng Việt và tiếng Anh. Với chất giọng tự nhiên, mượt mà như người thật cùng khả năng chuyển ngữ liền mạch. Mình phù hợp với các nội dung podcast, review",
     "url": "http://localhost:8000/presets/custom/custom_e5c1ed9b.wav"
+  },
+  {
+    "id": "custom_d3ad60ce",
+    "name": "Giọng nữ 2",
+    "gender": "female",
+    "description": "Giọng tự tạo",
+    "icon": "record_voice_over",
+    "prompt_text": "Bạn đọc thân mến, vì một lý do nào đó mà bạn có trong tay 2 ebook này, thì chúng tôi tin rằng cuộc đời của bạn sẽ bước sang một trang sử mới. Bạn đã may mắn hơn",
+    "url": "http://localhost:8000/presets/custom/custom_d3ad60ce.wav"
   }
 ]

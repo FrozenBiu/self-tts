@@ -85,6 +85,13 @@ app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
 app.mount("/presets", StaticFiles(directory=str(PRESETS_DIR)), name="presets")
 
 
+import os
+# pyrefly: ignore [missing-import]
+from dotenv import load_dotenv
+
+load_dotenv()
+DEFAULT_TIMESTEPS = int(os.getenv("DEFAULT_INFERENCE_TIMESTEPS", 10))
+
 # ─── Request / Response Schemas ──────────────────────────────────────────────
 class TTSRequest(BaseModel):
     """Payload cho endpoint POST /api/tts"""
@@ -103,10 +110,10 @@ class TTSRequest(BaseModel):
         description="Guidance scale (1.0-3.0). 2.5 la gia tri khuyen dung cho code-switching.",
     )
     inference_timesteps: int = Field(
-        default=10,
+        default=DEFAULT_TIMESTEPS,
         ge=4,
         le=30,
-        description="So buoc diffusion (4-30). 25 buoc cho chat luong on dinh voi text Viet-Anh.",
+        description="So buoc diffusion (4-30). Mac dinh tu .env (4-30).",
     )
     normalize: bool = Field(
         default=True,
