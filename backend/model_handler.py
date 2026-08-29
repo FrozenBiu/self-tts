@@ -54,6 +54,18 @@ def load_model() -> None:
         try:
             logger.info("🔄 Đang ép mô hình chạy ở Half Precision (FP16) để tối ưu VRAM...")
             _model.tts_model.half()
+            if hasattr(_model.tts_model, "config"):
+                _model.tts_model.config.dtype = "float16"
+                
+                # Cấu hình lại bộ nhớ đệm (KV Cache) từ bfloat16 sang float16
+                import torch
+                max_len = getattr(_model.tts_model.config, "max_length", 4096)
+                device_val = getattr(_model.tts_model, "device", "cuda")
+                
+                if hasattr(_model.tts_model, "base_lm"):
+                    _model.tts_model.base_lm.setup_cache(1, max_len, device_val, torch.float16)
+                if hasattr(_model.tts_model, "residual_lm"):
+                    _model.tts_model.residual_lm.setup_cache(1, max_len, device_val, torch.float16)
         except Exception as e:
             logger.warning(f"⚠️ Không thể ép kiểu FP16: {e}")
             
