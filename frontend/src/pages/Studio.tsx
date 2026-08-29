@@ -1,6 +1,6 @@
 import { useTTSStore } from "../store/useTTSStore";
 import { toast } from "sonner";
-import { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 
 export default function Studio() {
   const {
@@ -22,10 +22,14 @@ export default function Studio() {
     setPitch,
     setIsLoading,
     setAudioUrl,
+    setAudioFormat,
     addHistory,
     fetchVoices,
     setSelectedVoiceId,
   } = useTTSStore();
+
+  const [progress, setProgress] = useState(0);
+  const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const carouselRef = useRef<HTMLDivElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -118,7 +122,27 @@ export default function Studio() {
 
     setIsLoading(true);
     setAudioUrl(null);
-    const toastId = toast.loading("Đang xử lý...", { duration: 30000 });
+    setProgress(0);
+    const toastId = toast.loading("Đang khởi tạo mô hình...", {
+      duration: 30000,
+    });
+
+    // Ước tính thời gian xử lý: khoảng 1.5s cho mỗi 50 ký tự (với 10 timesteps)
+    const estimatedTimeMs = Math.max(
+      2000,
+      (text.length / 50) * (inference_timesteps / 10) * 1500,
+    );
+    const updateInterval = 100; // Cập nhật mỗi 100ms
+    const increment = 100 / (estimatedTimeMs / updateInterval);
+
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+    progressTimerRef.current = setInterval(() => {
+      setProgress((prev) => {
+        // Chạy tối đa đến 95% rồi dừng lại chờ kết quả thật
+        if (prev >= 95) return 95;
+        return prev + increment;
+      });
+    }, updateInterval);
 
     try {
       const response = await fetch("http://localhost:8000/api/tts", {
@@ -133,6 +157,7 @@ export default function Studio() {
           seed,
           speed,
           pitch,
+          format: useTTSStore.getState().audioFormat,
         }),
       });
 
@@ -142,6 +167,9 @@ export default function Studio() {
       }
 
       const data = await response.json();
+
+      // Hoàn thành tiến trình
+      setProgress(100);
       setAudioUrl(data.audio_url);
 
       addHistory({
@@ -167,8 +195,10 @@ export default function Studio() {
       }
     } catch (error: any) {
       toast.error(`Thất bại: ${error.message}`, { id: toastId });
+      setProgress(0);
     } finally {
       setIsLoading(false);
+      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     }
   };
 
@@ -193,10 +223,8 @@ export default function Studio() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 items-start">
         {/* Left Column: Main Content */}
-        <div className="lg:col-span-8 flex flex-col gap-6 h-full">
-          <div
-            className={`${audioUrl ? "h-full" : ""} glass-card rounded-2xl p-6 md:p-8 flex flex-col gap-8 shadow-2xl border border-white/5 relative overflow-hidden`}
-          >
+        <div className="lg:col-span-8 flex flex-col gap-6">
+          <div className="glass-card rounded-2xl p-6 md:p-8 flex flex-col gap-8 shadow-2xl border border-white/5 relative overflow-hidden">
             {/* Background decorative gradient */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[100px] pointer-events-none mix-blend-screen"></div>
 
@@ -371,6 +399,26 @@ export default function Studio() {
                   {text.length} / 5000 chars
                 </span>
               </div>
+
+              {/* Fake Progress Bar */}
+              {isLoading && (
+                <div className="w-full mt-2 flex flex-col gap-2">
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-xs font-label-caps text-primary animate-pulse">
+                      Đang tổng hợp giọng nói...
+                    </span>
+                    <span className="text-xs font-mono-data text-primary">
+                      {Math.round(progress)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-surface-dim rounded-full overflow-hidden border border-white/5 shadow-inner">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Output Area (in-place) */}
@@ -383,16 +431,40 @@ export default function Studio() {
                     </span>
                     Âm thanh đầu ra
                   </span>
-                  <a
-                    href={audioUrl}
-                    download
+                  <button
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      if (!audioUrl) return;
+                      try {
+                        const toastId = toast.loading(
+                          "Đang chuẩn bị file tải xuống...",
+                        );
+                        const response = await fetch(audioUrl);
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.style.display = "none";
+                        a.href = url;
+                        const filename =
+                          audioUrl.split("/").pop() ||
+                          `audio.${useTTSStore.getState().audioFormat}`;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        toast.success("Tải xuống thành công!", { id: toastId });
+                      } catch (err) {
+                        toast.error("Lỗi khi tải file");
+                      }
+                    }}
                     className="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 hover:border-primary/30"
                   >
                     <span className="material-symbols-outlined text-[18px]">
                       download
                     </span>
                     <span className="text-xs font-label-caps">Tải xuống</span>
-                  </a>
+                  </button>
                 </div>
                 <div className="flex items-center w-full mt-2">
                   <audio
@@ -423,6 +495,27 @@ export default function Studio() {
             </div>
 
             <div className="flex flex-col gap-8">
+              {/* Format Selection */}
+              <div className="flex flex-col gap-4">
+                <label className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2">
+                  Định dạng tải về
+                </label>
+                <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-1 w-full shadow-inner">
+                  <button
+                    className={`flex-1 py-1.5 rounded-md font-label-caps text-xs transition-all duration-300 ${useTTSStore.getState().audioFormat === "mp3" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                    onClick={() => setAudioFormat("mp3")}
+                  >
+                    .MP3 (Mặc định)
+                  </button>
+                  <button
+                    className={`flex-1 py-1.5 rounded-md font-label-caps text-xs transition-all duration-300 ${useTTSStore.getState().audioFormat === "wav" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                    onClick={() => setAudioFormat("wav")}
+                  >
+                    .WAV
+                  </button>
+                </div>
+              </div>
+
               {/* CFG Scale */}
               <div className="flex flex-col gap-4">
                 <div className="flex justify-between items-center">

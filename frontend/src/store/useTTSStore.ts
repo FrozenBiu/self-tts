@@ -34,6 +34,7 @@ interface TTSState {
   pitch: number
   isLoading: boolean
   audioUrl: string | null
+  audioFormat: string
   history: AudioRecord[]
   voices: Voice[]
   selectedVoiceId: string | null
@@ -45,6 +46,7 @@ interface TTSState {
   setPitch: (val: number) => void
   setIsLoading: (val: boolean) => void
   setAudioUrl: (url: string | null) => void
+  setAudioFormat: (format: string) => void
   addHistory: (record: Omit<AudioRecord, 'id' | 'timestamp'>) => void
   removeHistory: (id: string) => void
   fetchVoices: () => Promise<void>
@@ -61,6 +63,7 @@ export const useTTSStore = create<TTSState>((set, get) => ({
   pitch: 0.0,
   isLoading: false,
   audioUrl: null,
+  audioFormat: 'mp3',
   history: JSON.parse(localStorage.getItem('tts_history') || '[]'),
   voices: [],
   selectedVoiceId: null,
@@ -72,6 +75,7 @@ export const useTTSStore = create<TTSState>((set, get) => ({
   setPitch: (pitch) => set({ pitch }),
   setIsLoading: (isLoading) => set({ isLoading }),
   setAudioUrl: (audioUrl) => set({ audioUrl }),
+  setAudioFormat: (audioFormat) => set({ audioFormat }),
   addHistory: (record) => set((state) => {
     const newRecord: AudioRecord = {
       ...record,
@@ -82,11 +86,24 @@ export const useTTSStore = create<TTSState>((set, get) => ({
     localStorage.setItem('tts_history', JSON.stringify(newHistory))
     return { history: newHistory }
   }),
-  removeHistory: (id) => set((state) => {
-    const newHistory = state.history.filter(h => h.id !== id)
-    localStorage.setItem('tts_history', JSON.stringify(newHistory))
-    return { history: newHistory }
-  }),
+  removeHistory: async (id) => {
+    const record = get().history.find(h => h.id === id);
+    if (record && record.url) {
+      const filename = record.url.split('/').pop();
+      if (filename) {
+        try {
+          await fetch(`http://localhost:8000/api/tts/${filename}`, { method: 'DELETE' });
+        } catch (e) {
+          console.error("Lỗi xoá file", e);
+        }
+      }
+    }
+    set((state) => {
+      const newHistory = state.history.filter(h => h.id !== id)
+      localStorage.setItem('tts_history', JSON.stringify(newHistory))
+      return { history: newHistory }
+    });
+  },
   fetchVoices: async () => {
     try {
       const res = await fetch('http://localhost:8000/api/voices')

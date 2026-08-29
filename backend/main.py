@@ -147,6 +147,10 @@ class TTSRequest(BaseModel):
         le=12.0,
         description="Điều chỉnh cao độ (bước âm - nửa cung). 0 là bình thường.",
     )
+    format: str = Field(
+        default="mp3",
+        description="Định dạng âm thanh đầu ra: 'wav' hoặc 'mp3'",
+    )
 
 
 class TTSResponse(BaseModel):
@@ -297,13 +301,14 @@ async def delete_custom_voice(voice_id: str):
     raise HTTPException(status_code=404, detail="Không tìm thấy giọng đọc")
 
 
-def _cleanup_old_files(keep_latest: int = 50) -> None:
+def _cleanup_old_files(keep_latest: int = 200) -> None:
     """
     Dọn dẹp outputs/ nếu vượt quá `keep_latest` file,
     xóa các file cũ nhất để tiết kiệm dung lượng ổ đĩa.
     """
-    wav_files = sorted(OUTPUTS_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime)
-    for old_file in wav_files[:-keep_latest]:
+    files = list(OUTPUTS_DIR.glob("*.wav")) + list(OUTPUTS_DIR.glob("*.mp3"))
+    files = sorted(files, key=lambda f: f.stat().st_mtime)
+    for old_file in files[:-keep_latest]:
         old_file.unlink(missing_ok=True)
         logger.info(f"🗑️  Đã xóa file cũ: {old_file.name}")
 
@@ -330,11 +335,14 @@ async def text_to_speech(
     do GPU warm-up. Các lần gọi tiếp theo sẽ nhanh hơn đáng kể.
     """
     # Tạo Hash để làm Cache Key
-    cache_str = f"{request.text}_{request.voice_id}_{request.cfg_value}_{request.inference_timesteps}_{request.normalize}_{request.seed}_{request.speed}_{request.pitch}"
+    cache_str = f"{request.text}_{request.voice_id}_{request.cfg_value}_{request.inference_timesteps}_{request.normalize}_{request.seed}_{request.speed}_{request.pitch}_{request.format}"
     file_hash = hashlib.md5(cache_str.encode('utf-8')).hexdigest()
-    filename = f"tts_{file_hash}.wav"
+    
+    ext = ".mp3" if request.format == "mp3" else ".wav"
+    filename = f"tts_{file_hash}{ext}"
     output_path = OUTPUTS_DIR / filename
-
+    
+    # Clean file type check for glob cleanup
     if output_path.exists():
         logger.info(f"⚡ CACHE HIT: Tái sử dụng {filename}")
         output_path.touch() # Cập nhật thời gian mtime để không bị xóa bởi _cleanup_old_files
@@ -388,6 +396,7 @@ async def text_to_speech(
             seed=request.seed,
             speed=request.speed,
             pitch=request.pitch,
+            audio_format=request.format,
         )
     except Exception as exc:
         logger.exception("❌ Lỗi khi tổng hợp giọng nói")
@@ -405,3 +414,26 @@ async def text_to_speech(
         filename=filename,
         audio_url=audio_url,
     )
+
+
+@app.delete("/api/tts/{filename}")
+async def delete_audio(filename: str):
+    """
+    Xóa một file âm thanh đã được tổng hợp khỏi máy chủ.
+    """
+    # Bảo mật: Lấy basename để tránh path traversal (vd: ../main.py)
+    safe_filename = os.path.basename(filename)
+    file_path = OUTPUTS_DIR / safe_filename
+    
+    if file_path.exists() and file_path.is_file():
+        try:
+            file_path.unlink()
+            logger.info(f"🗑️ Đã xóa file theo yêu cầu API: {safe_filename}")
+            return {"message": "Đã xóa file thành công"}
+        except Exception as e:
+            logger.error(f"Lỗi khi xóa file {safe_filename}: {e}")
+            raise HTTPException(status_code=500, detail="Không thể xóa file")
+    
+    # Kể cả không tìm thấy cũng trả về 200 để Frontend dọn dẹp bộ nhớ an toàn
+    return {"message": "File không tồn tại hoặc đã bị xóa trước đó"}
+

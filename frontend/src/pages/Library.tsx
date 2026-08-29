@@ -113,30 +113,75 @@ function AudioRecordItem({ record, removeHistory }: { record: AudioRecord, remov
 
 export default function Library() {
   const { history, removeHistory } = useTTSStore();
+  
+  // Phân trang
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  
+  const totalPages = Math.ceil(history.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const currentItems = history.slice(startIndex, startIndex + itemsPerPage);
+
+  // Điều chỉnh trang nếu xoá item cuối cùng của trang hiện tại
+  if (currentPage > totalPages && totalPages > 0) {
+    setCurrentPage(totalPages);
+  }
 
   return (
     <div className="glass-card rounded-xl w-full max-w-4xl p-6 md:p-8 flex flex-col gap-8 shadow-2xl">
       {/* Card Header */}
-      <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-        <span className="material-symbols-outlined text-primary text-3xl">
-          folder_open
-        </span>
-        <h1 className="font-display text-display md:text-display text-headline-lg-mobile text-on-surface">
-          Thư viện Audio
-        </h1>
+      <div className="flex items-center justify-between border-b border-white/5 pb-4">
+        <div className="flex items-center gap-3">
+          <span className="material-symbols-outlined text-primary text-3xl">
+            folder_open
+          </span>
+          <h1 className="font-display text-display md:text-display text-headline-lg-mobile text-on-surface">
+            Thư viện Audio
+          </h1>
+        </div>
+        <div className="bg-surface-variant px-3 py-1 rounded-full text-xs font-mono-data text-on-surface-variant border border-white/5">
+          {history.length} mục
+        </div>
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6">
         {history.length === 0 ? (
           <div className="p-12 text-center text-on-surface-variant font-mono-data text-mono-data border border-dashed border-white/10 rounded-lg bg-surface-dim">
             Thư viện trống. Hãy tạo một đoạn âm thanh mới ở Phòng thu.
           </div>
         ) : (
-          <div className="divide-y divide-white/5 border border-white/5 rounded-lg bg-surface-dim overflow-hidden">
-            {history.map((record) => (
-              <AudioRecordItem key={record.id} record={record} removeHistory={removeHistory} />
-            ))}
-          </div>
+          <>
+            <div className="divide-y divide-white/5 border border-white/5 rounded-lg bg-surface-dim overflow-hidden">
+              {currentItems.map((record) => (
+                <AudioRecordItem key={record.id} record={record} removeHistory={removeHistory} />
+              ))}
+            </div>
+            
+            {/* Thanh điều hướng phân trang */}
+            {totalPages > 1 && (
+              <div className="flex justify-between items-center bg-surface-dim p-4 rounded-lg border border-white/5">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-label-caps text-xs transition-colors ${currentPage === 1 ? 'text-on-surface-variant/30 cursor-not-allowed' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+                  Trang trước
+                </button>
+                <div className="font-mono-data text-xs text-on-surface-variant">
+                  Trang <span className="text-primary">{currentPage}</span> / {totalPages}
+                </div>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-label-caps text-xs transition-colors ${currentPage === totalPages ? 'text-on-surface-variant/30 cursor-not-allowed' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}
+                >
+                  Trang sau
+                  <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

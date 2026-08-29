@@ -98,6 +98,7 @@ def generate_audio(
     seed: int | None = 42,
     speed: float = 1.0,
     pitch: float = 0.0,
+    audio_format: str = "wav",
 ) -> None:
     """
     Goi model.generate() va luu ket qua ra file WAV.
@@ -175,6 +176,14 @@ def generate_audio(
         if pitch != 0.0:
             audio = librosa.effects.pitch_shift(audio, sr=actual_sr, n_steps=pitch)
 
-    # Ghi WAV — khớp 100% với cách CLI chính thức của voxcpm:
-    sf.write(str(output_path), audio, actual_sr)
-    logger.info(f"Saved: {output_path.name} | {len(audio)/actual_sr:.2f}s | sr={actual_sr}")
+    # Ghi file
+    if audio_format == "mp3":
+        import torchaudio
+        # torchaudio.save expects tensor of shape [channels, frames]
+        tensor_audio = torch.from_numpy(audio).unsqueeze(0)
+        torchaudio.save(str(output_path), tensor_audio, actual_sr, format="mp3")
+    else:
+        # Ghi WAV — khớp 100% với cách CLI chính thức của voxcpm:
+        sf.write(str(output_path), audio, actual_sr)
+        
+    logger.info(f"Saved: {output_path.name} | {len(audio)/actual_sr:.2f}s | sr={actual_sr} | format={audio_format}")

@@ -11,8 +11,10 @@ Dự án được chia làm 2 phần độc lập: **Backend (Python/FastAPI)** 
 - **pnpm** (Trình quản lý package cho Frontend)
 
 ### 💻 Yêu cầu phần cứng (Hardware Requirements)
+
 Dự án sử dụng mô hình AI (PyTorch + VoxCPM2), nên phần cứng đóng vai trò quan trọng:
-- **Card đồ họa (VGA):** 
+
+- **Card đồ họa (VGA):**
   - **Khuyến nghị:** NVIDIA RTX (từ 2060, 3060, 4060 trở lên) với VRAM >= 6GB. Hệ thống sẽ sử dụng kiến trúc CUDA để sinh âm thanh cực kỳ nhanh (2-3 giây).
   - **Laptop hoặc VGA AMD/Intel:** Các máy tính dùng VGA AMD (như Radeon 780M) hoặc không có card rời NVIDIA vẫn **chạy được bình thường**. Hệ thống sẽ tự động chuyển sang tính toán bằng **CPU**. Việc cài đặt không có gì thay đổi, tuy nhiên thời gian xử lý (Generate) sẽ lâu hơn một chút (khoảng 10-20 giây) tùy thuộc vào sức mạnh của CPU.
 - **Bộ nhớ (RAM):** Tối thiểu **16GB** (Khuyến nghị 24GB+). Rất quan trọng khi chạy bằng CPU hoặc khi load mô hình vào bộ nhớ.
@@ -45,17 +47,20 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install -r requirements.txt
 
 # 6. Khởi chạy Server
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 > 💡 **Khắc phục sự cố PyTorch (CPU):** Nếu bạn lỡ chạy cài file `requirements.txt` trước Bước 4, `pip` có thể đã tải nhầm bản CPU hoặc bản không tối ưu. Để sửa lại mà không cần xóa môi trường, hãy chạy 2 lệnh sau:
+>
 > ```bash
 > pip uninstall torch torchvision torchaudio -y
 > pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 > ```
 
 ### 1.1. Cấu hình tối ưu AI theo dung lượng VRAM (Quan trọng cho máy yếu)
+
 Dự án hỗ trợ tuỳ biến cấu hình phần cứng mà không cần sửa code. Nếu máy bạn có VRAM thấp (<= 8GB) hoặc cấu hình siêu mạnh (>= 12GB), hãy làm theo các bước sau:
+
 1. Vào thư mục `backend`.
 2. Đổi tên (hoặc copy) file `.env.example` thành `.env`.
 3. Mở file `.env` lên, bên trong đã có sẵn hướng dẫn chi tiết bằng tiếng Việt để bạn Bật/Tắt các tính năng (như Ép chạy nửa độ chính xác - Half Precision) dựa trên dung lượng VRAM thực tế của máy.
