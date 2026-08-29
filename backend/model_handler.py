@@ -32,6 +32,7 @@ MODEL_ID = "openbmb/VoxCPM2"
 # Lấy cấu hình tối ưu phần cứng từ .env
 VOXCPM_HALF_PRECISION = os.getenv("VOXCPM_HALF_PRECISION", "False").lower() in ("true", "1", "yes")
 VOXCPM_LOAD_DENOISER = os.getenv("VOXCPM_LOAD_DENOISER", "False").lower() in ("true", "1", "yes")
+VOXCPM_FORCE_CPU = os.getenv("VOXCPM_FORCE_CPU", "False").lower() in ("true", "1", "yes")
 
 def load_model() -> None:
     """
@@ -44,10 +45,12 @@ def load_model() -> None:
         logger.info("Model đã được load, bỏ qua.")
         return
 
-    logger.info(f"Đang load model {MODEL_ID} vào VRAM (Half Precision={VOXCPM_HALF_PRECISION}, Denoiser={VOXCPM_LOAD_DENOISER}) …")
+    device_val = "cpu" if VOXCPM_FORCE_CPU else None
+    logger.info(f"Đang load model {MODEL_ID} vào VRAM (Half Precision={VOXCPM_HALF_PRECISION}, Denoiser={VOXCPM_LOAD_DENOISER}, Force CPU={VOXCPM_FORCE_CPU}) …")
     _model = VoxCPM.from_pretrained(
         MODEL_ID, 
-        load_denoiser=VOXCPM_LOAD_DENOISER
+        load_denoiser=VOXCPM_LOAD_DENOISER,
+        device=device_val
     )
     
     if VOXCPM_HALF_PRECISION:
@@ -135,7 +138,10 @@ def generate_audio(
     logger.info(f"Đang tổng hợp: '{text[:60]}…'")
     
     import torch
-    device_type = "cuda" if torch.cuda.is_available() else "cpu"
+    if VOXCPM_FORCE_CPU:
+        device_type = "cpu"
+    else:
+        device_type = "cuda" if torch.cuda.is_available() else "cpu"
     
     if VOXCPM_HALF_PRECISION and device_type == "cuda":
         # Tự động đồng bộ kiểu dữ liệu (dtype) cho đầu vào để khớp với mô hình đã ép kiểu FP16
