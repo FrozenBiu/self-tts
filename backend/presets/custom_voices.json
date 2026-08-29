@@ -24,6 +24,13 @@
     "description": "Giọng tự tạo",
     "icon": "record_voice_over",
     "prompt_text": "Bạn đọc thân mến không biết vì một lý do nào đó mà bạn có trong tay hai ebook này thì chúng tôi tin rằng cuộc đời của bạn sẽ bước sang một trang sử mới. bạn đã mai mắn hơn phần đông dân số còn lại bởi vì những tri thức vô giá trong 2 ebook này sẽ thay đổi cuộc đời của bạn sau này và mãi mãi",
-    "url": "http://localhost:8000/presets/custom/custom_9cba402d.wav"
+    "url": "http://localhost:8000/presets/custom/custom_9cba402d.wav",
+    "id": "custom_d3ad60ce",
+    "name": "Giọng nữ 2",
+    "gender": "female",
+    "description": "Giọng tự tạo",
+    "icon": "record_voice_over",
+    "prompt_text": "Bạn đọc thân mến, vì một lý do nào đó mà bạn có trong tay 2 ebook này, thì chúng tôi tin rằng cuộc đời của bạn sẽ bước sang một trang sử mới. Bạn đã may mắn hơn",
+    "url": "http://localhost:8000/presets/custom/custom_d3ad60ce.wav"
   }
 ]

@@ -6,10 +6,16 @@ Chứa toàn bộ logic liên quan đến VoxCPM2:
   - generate_audio(): wrapper gọn gàng cho model.generate().
 """
 
+import os
+# pyrefly: ignore [missing-import]
+from dotenv import load_dotenv
 import logging
 import soundfile as sf
 from pathlib import Path
 from voxcpm import VoxCPM
+
+# Tự động tải biến môi trường từ file .env (nếu có)
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -23,20 +29,27 @@ SAMPLE_RATE = 16_000
 # Tên model trên HuggingFace Hub (hoặc thay bằng đường dẫn local nếu cần)
 MODEL_ID = "openbmb/VoxCPM2"
 
+# Lấy cấu hình tối ưu phần cứng từ .env
+VOXCPM_HALF_PRECISION = os.getenv("VOXCPM_HALF_PRECISION", "False").lower() in ("true", "1", "yes")
+VOXCPM_LOAD_DENOISER = os.getenv("VOXCPM_LOAD_DENOISER", "False").lower() in ("true", "1", "yes")
 
 def load_model() -> None:
     """
     Load VoxCPM2 vào VRAM.
     Gọi hàm này duy nhất một lần trong FastAPI startup event.
-    load_denoiser=False → tiết kiệm VRAM, phù hợp RTX 3060 12 GB.
+    Cấu hình half_precision và load_denoiser sẽ được lấy từ file .env
     """
     global _model
     if _model is not None:
         logger.info("Model đã được load, bỏ qua.")
         return
 
-    logger.info(f"Đang load model {MODEL_ID} vào VRAM …")
-    _model = VoxCPM.from_pretrained(MODEL_ID, load_denoiser=False)
+    logger.info(f"Đang load model {MODEL_ID} vào VRAM (Half Precision={VOXCPM_HALF_PRECISION}, Denoiser={VOXCPM_LOAD_DENOISER}) …")
+    _model = VoxCPM.from_pretrained(
+        MODEL_ID, 
+        load_denoiser=VOXCPM_LOAD_DENOISER,
+        half=VOXCPM_HALF_PRECISION
+    )
     logger.info("✅ Model load thành công!")
 
 
