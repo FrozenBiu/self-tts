@@ -14,7 +14,6 @@ export default function CloningVoice() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("Giọng tự tạo");
   const [gender, setGender] = useState("all");
-  const [promptText, setPromptText] = useState("");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -102,10 +101,6 @@ export default function CloningVoice() {
     e.preventDefault();
     if (!file) return toast.error("Vui lòng upload hoặc ghi âm mẫu giọng đọc.");
     if (!name.trim()) return toast.error("Vui lòng nhập tên giọng đọc.");
-    if (!promptText.trim())
-      return toast.error(
-        "Vui lòng nhập chính xác nội dung (transcript) của đoạn audio.",
-      );
 
     setIsUploading(true);
     const toastId = toast.loading("Đang xử lý và tạo giọng...");
@@ -124,7 +119,6 @@ export default function CloningVoice() {
       formData.append("description", description);
       formData.append("gender", gender);
       formData.append("icon", "record_voice_over");
-      formData.append("prompt_text", promptText);
 
       toast.loading("Đang tải lên và khởi tạo...", { id: toastId });
       const res = await fetch("http://localhost:8000/api/voices/clone", {
@@ -142,7 +136,6 @@ export default function CloningVoice() {
       // Reset form
       setFile(null);
       setName("");
-      setPromptText("");
       setDescription("Giọng tự tạo");
       if (fileInputRef.current) fileInputRef.current.value = "";
 
@@ -310,23 +303,19 @@ export default function CloningVoice() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="font-label-caps text-xs text-on-surface-variant flex justify-between">
-                <span>Nội dung chính xác (Transcript) của file âm thanh</span>
-                <span className="text-error">* Bắt buộc</span>
-              </label>
-              <textarea
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-                placeholder="Nghe file âm thanh và gõ lại chính xác nội dung từng chữ mà người đó đã nói vào đây..."
-                className="bg-surface-dim border border-white/10 rounded-lg px-4 py-3 text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-colors min-h-[100px] resize-y"
-                required
-              />
-              <p className="text-xs text-on-surface-variant/70">
-                Mô hình AI cần biết chính xác nội dung của 10 giây đầu tiên để
-                tiến hành ghép nối ngữ âm.
-              </p>
-            </div>
+              <div className="flex flex-col gap-2 p-4 bg-primary/5 border border-primary/20 rounded-xl">
+                <div className="flex items-start gap-3 text-primary">
+                  <span className="material-symbols-outlined mt-0.5 text-[20px]">
+                    smart_toy
+                  </span>
+                  <div>
+                    <p className="font-label-caps text-sm">Hệ thống AI Tự động nhận diện</p>
+                    <p className="text-xs text-primary/80 mt-1">
+                      Chúng tôi sẽ sử dụng mô hình Whisper để tự động trích xuất nội dung từ đoạn âm thanh của bạn, giúp quá trình tạo giọng nhanh chóng và chính xác hơn. Bạn không cần phải tự gõ lại văn bản nữa!
+                    </p>
+                  </div>
+                </div>
+              </div>
 
             <button
               type="submit"
