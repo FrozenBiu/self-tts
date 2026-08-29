@@ -50,7 +50,8 @@ def load_model() -> None:
     _model = VoxCPM.from_pretrained(
         MODEL_ID, 
         load_denoiser=VOXCPM_LOAD_DENOISER,
-        device=device_val
+        device=device_val,
+        optimize=False
     )
     
     import torch
