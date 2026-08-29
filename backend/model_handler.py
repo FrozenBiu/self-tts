@@ -47,9 +47,16 @@ def load_model() -> None:
     logger.info(f"Đang load model {MODEL_ID} vào VRAM (Half Precision={VOXCPM_HALF_PRECISION}, Denoiser={VOXCPM_LOAD_DENOISER}) …")
     _model = VoxCPM.from_pretrained(
         MODEL_ID, 
-        load_denoiser=VOXCPM_LOAD_DENOISER,
-        half=VOXCPM_HALF_PRECISION
+        load_denoiser=VOXCPM_LOAD_DENOISER
     )
+    
+    if VOXCPM_HALF_PRECISION:
+        try:
+            logger.info("🔄 Đang ép mô hình chạy ở Half Precision (FP16) để tối ưu VRAM...")
+            _model.tts_model.half()
+        except Exception as e:
+            logger.warning(f"⚠️ Không thể ép kiểu FP16: {e}")
+            
     logger.info("✅ Model load thành công!")
 
 

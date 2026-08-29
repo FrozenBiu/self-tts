@@ -8,7 +8,7 @@ uvicorn[standard]
 python-multipart
 
 # AI Model
-voxcpm==2.0.3
+voxcpm
 
 # Audio I/O
 soundfile
