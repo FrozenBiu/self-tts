@@ -38,6 +38,8 @@ interface TTSState {
   history: AudioRecord[]
   voices: Voice[]
   selectedVoiceId: string | null
+  pinnedVoices: string[]
+  togglePin: (id: string) => void
   setText: (text: string) => void
   setCfgValue: (val: number) => void
   setTimesteps: (val: number) => void
@@ -67,6 +69,15 @@ export const useTTSStore = create<TTSState>((set, get) => ({
   history: JSON.parse(localStorage.getItem('tts_history') || '[]'),
   voices: [],
   selectedVoiceId: null,
+  pinnedVoices: JSON.parse(localStorage.getItem('tts_pinned_voices') || '[]'),
+  togglePin: (id) => set((state) => {
+    const isPinned = state.pinnedVoices.includes(id);
+    const newPinned = isPinned 
+      ? state.pinnedVoices.filter(vId => vId !== id)
+      : [...state.pinnedVoices, id];
+    localStorage.setItem('tts_pinned_voices', JSON.stringify(newPinned));
+    return { pinnedVoices: newPinned };
+  }),
   setText: (text) => set({ text }),
   setCfgValue: (cfg_value) => set({ cfg_value }),
   setTimesteps: (inference_timesteps) => set({ inference_timesteps }),

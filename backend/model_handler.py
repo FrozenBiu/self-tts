@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import logging
 import soundfile as sf
 from pathlib import Path
+# pyrefly: ignore [missing-import]
 from voxcpm import VoxCPM
 
 # Tự động tải biến môi trường từ file .env (nếu có)
@@ -27,12 +28,13 @@ _model: VoxCPM | None = None
 SAMPLE_RATE = 16_000
 
 # Tên model trên HuggingFace Hub (hoặc thay bằng đường dẫn local nếu cần)
-MODEL_ID = "openbmb/VoxCPM2"
 
 # Lấy cấu hình tối ưu phần cứng từ .env
 VOXCPM_HALF_PRECISION = os.getenv("VOXCPM_HALF_PRECISION", "False").lower() in ("true", "1", "yes")
 VOXCPM_LOAD_DENOISER = os.getenv("VOXCPM_LOAD_DENOISER", "False").lower() in ("true", "1", "yes")
 VOXCPM_FORCE_CPU = os.getenv("VOXCPM_FORCE_CPU", "False").lower() in ("true", "1", "yes")
+VOXCPM_MODEL_VERSION = os.getenv("VOXCPM_MODEL_VERSION", "2")
+MODEL_ID = "openbmb/VoxCPM2" if VOXCPM_MODEL_VERSION == "2" else "JayLL13/VoxCPM-1.5-VN"
 
 def load_model() -> None:
     """
@@ -144,26 +146,79 @@ def generate_audio(
     logger.info(f"Đang tổng hợp: '{text[:60]}…'")
     
     import torch
+    import gc
+    import numpy as np
+    import re
+    
     if VOXCPM_FORCE_CPU:
         device_type = "cpu"
     else:
         device_type = "cuda" if torch.cuda.is_available() else "cpu"
     
-    if VOXCPM_HALF_PRECISION and device_type == "cuda":
-        # Tự động đồng bộ kiểu dữ liệu (dtype) cho đầu vào để khớp với mô hình đã ép kiểu FP16
-        with torch.autocast(device_type=device_type, dtype=torch.float16):
-            wav = model.generate(**kwargs)
-    else:
-        wav = model.generate(**kwargs)
+    # Chunking text into sentences to prevent VRAM overflow and Hallucinations
+    raw_chunks = re.split(r'(?<=[.!?\n])\s+', text)
+    chunks = [c.strip() for c in raw_chunks if c.strip()]
+    if not chunks:
+        chunks = [text]
 
+    all_audio = []
+    
+    try:
+        for idx, chunk in enumerate(chunks):
+            logger.info(f"Đang tổng hợp chunk {idx+1}/{len(chunks)}: '{chunk[:60]}...'")
+            kwargs["text"] = chunk
+            
+            if VOXCPM_HALF_PRECISION and device_type == "cuda":
+                with torch.autocast(device_type=device_type, dtype=torch.float16):
+                    wav = model.generate(**kwargs)
+            else:
+                wav = model.generate(**kwargs)
+
+            audio_chunk = np.array(wav, dtype=np.float32)
+            if audio_chunk.ndim > 1:
+                audio_chunk = audio_chunk.squeeze()
+                
+            all_audio.append(audio_chunk)
+            
+            # Clear cache immediately after each sentence
+            if device_type == "cuda":
+                torch.cuda.empty_cache()
+                
+    finally:
+        # Ultimate garbage collection
+        gc.collect()
+        if device_type == "cuda":
+            torch.cuda.empty_cache()
+
+    if not all_audio:
+        raise ValueError("Không có âm thanh nào được tạo ra.")
+
+    import librosa
+    actual_sr = model.tts_model.sample_rate
+    
+    # Khoảng lặng giữa các câu là 0.25 giây
+    silence_samples = int(actual_sr * 0.25)
+    silence_array = np.zeros(silence_samples, dtype=np.float32)
+
+    final_audio = []
+    for i, a in enumerate(all_audio):
+        # 1. Cắt bỏ khoảng lặng thừa (nhiễu/rỗng) ở hai đầu do mô hình tự sinh ra
+        a_trimmed, _ = librosa.effects.trim(a, top_db=35)
+        
+        # 2. Tạo hiệu ứng mờ dần (fade in/out) cực ngắn 20ms để tránh tiếng click/nổ (popping)
+        fade_len = int(actual_sr * 0.02)
+        if len(a_trimmed) > fade_len * 2:
+            fade_in = np.linspace(0, 1, fade_len, dtype=np.float32)
+            fade_out = np.linspace(1, 0, fade_len, dtype=np.float32)
+            a_trimmed[:fade_len] *= fade_in
+            a_trimmed[-fade_len:] *= fade_out
+
+        final_audio.append(a_trimmed)
+        if i < len(all_audio) - 1:
+            final_audio.append(silence_array)
+
+    audio = np.concatenate(final_audio)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    import numpy as np
-
-    # Ép về float32 1D (khớp với output type của model.generate())
-    audio = np.array(wav, dtype=np.float32)
-    if audio.ndim > 1:
-        audio = audio.squeeze()
 
     # Lấy sample rate thực tế từ model (16000 Hz)
     actual_sr = model.tts_model.sample_rate

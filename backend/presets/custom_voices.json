@@ -16,5 +16,14 @@
     "icon": "record_voice_over",
     "prompt_text": "Chúng ta đang sống trong thời đại của chí tuệ nhân tạo.  Mỏ lĩnh vực từ giáo dục, ý tế, đề sáng tạo nghị thuật đều đang thay đổi nhanh chóng.  Chúng ta không chỉ sử dụng công nghệ mà còn học cách hoa nhiệp.",
     "url": "http://localhost:8000/presets/custom/custom_0b876cb1.wav"
+  },
+  {
+    "id": "custom_fe662990",
+    "name": "Tony",
+    "gender": "female",
+    "description": "Giọng tự tạo",
+    "icon": "record_voice_over",
+    "prompt_text": "Với thu nhập hiện nay là sáu triệu đồng, tức ba trăm đô la Mỹ, ở Sài Gòn",
+    "url": "http://localhost:8000/presets/custom/custom_fe662990.wav"
   }
 ]

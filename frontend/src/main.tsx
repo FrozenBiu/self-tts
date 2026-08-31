@@ -1,15 +1,15 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { Toaster } from 'sonner'
-import './index.css'
-import App from './App.tsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { Toaster } from "sonner";
+import "./index.css";
+import App from "./App.tsx";
 
 // Force dark mode
-document.documentElement.classList.add('dark')
+document.documentElement.classList.add("dark");
 
-createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
-    <Toaster position="bottom-right" theme="dark" richColors />
+    <Toaster position="top-right" offset={100} theme="dark" richColors />
   </StrictMode>,
-)
+);

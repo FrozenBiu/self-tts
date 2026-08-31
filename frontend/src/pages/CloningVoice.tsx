@@ -7,11 +7,23 @@ export default function CloningVoice() {
   const { voices, fetchVoices, deleteCustomVoice } = useTTSStore();
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string>("");
+
+  useEffect(() => {
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setAudioUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setAudioUrl("");
+    }
+  }, [file]);
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
   // Metadata state
   const [name, setName] = useState("");
+  const [transcript, setTranscript] = useState("");
   const [description, setDescription] = useState("Giọng tự tạo");
   const [gender, setGender] = useState("all");
 
@@ -116,6 +128,7 @@ export default function CloningVoice() {
       const formData = new FormData();
       formData.append("file", wavFile);
       formData.append("name", name);
+      formData.append("transcript", transcript);
       formData.append("description", description);
       formData.append("gender", gender);
       formData.append("icon", "record_voice_over");
@@ -136,6 +149,7 @@ export default function CloningVoice() {
       // Reset form
       setFile(null);
       setName("");
+      setTranscript("");
       setDescription("Giọng tự tạo");
       if (fileInputRef.current) fileInputRef.current.value = "";
 
@@ -171,7 +185,8 @@ export default function CloningVoice() {
             Cloning Voice
           </h1>
           <p className="text-on-surface-variant text-sm mt-0.5">
-            Tự tạo giọng AI cá nhân hoá từ đoạn thu âm (yêu cầu khoảng 10 giây).
+            Tự tạo giọng AI cá nhân hoá từ đoạn thu âm (khuyên dùng khoảng 3-6
+            giây).
           </p>
         </div>
       </div>
@@ -248,7 +263,7 @@ export default function CloningVoice() {
                       </span>
                     </p>
                     <audio
-                      src={URL.createObjectURL(file)}
+                      src={audioUrl}
                       controls
                       className="w-full max-w-sm rounded-lg"
                       style={{ colorScheme: "dark" }}
@@ -274,6 +289,19 @@ export default function CloningVoice() {
 
             {/* Thông tin cấu hình */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="flex flex-col gap-2 col-span-2">
+                <label className="font-label-caps text-xs text-on-surface-variant">
+                  Văn bản chính xác của đoạn thu âm{" "}
+                  <span className="text-error">*</span>
+                </label>
+                <textarea
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  placeholder="VD: Chào mừng các bạn đến với bản tin thời tiết..."
+                  className="bg-surface-dim border border-white/10 rounded-lg px-4 py-2.5 text-on-surface focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-colors resize-none h-20"
+                  required
+                />
+              </div>
               <div className="flex flex-col gap-2">
                 <label className="font-label-caps text-xs text-on-surface-variant">
                   Tên giọng đọc
@@ -287,6 +315,7 @@ export default function CloningVoice() {
                   required
                 />
               </div>
+
               <div className="flex flex-col gap-2">
                 <label className="font-label-caps text-xs text-on-surface-variant">
                   Giới tính
@@ -302,20 +331,6 @@ export default function CloningVoice() {
                 </select>
               </div>
             </div>
-
-              <div className="flex flex-col gap-2 p-4 bg-primary/5 border border-primary/20 rounded-xl">
-                <div className="flex items-start gap-3 text-primary">
-                  <span className="material-symbols-outlined mt-0.5 text-[20px]">
-                    smart_toy
-                  </span>
-                  <div>
-                    <p className="font-label-caps text-sm">Hệ thống AI Tự động nhận diện</p>
-                    <p className="text-xs text-primary/80 mt-1">
-                      Chúng tôi sẽ sử dụng mô hình Whisper để tự động trích xuất nội dung từ đoạn âm thanh của bạn, giúp quá trình tạo giọng nhanh chóng và chính xác hơn. Bạn không cần phải tự gõ lại văn bản nữa!
-                    </p>
-                  </div>
-                </div>
-              </div>
 
             <button
               type="submit"

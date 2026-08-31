@@ -208,16 +208,6 @@ async def get_voices():
                 
     return preset_voices + custom_voices
 
-whisper_model = None
-
-def get_whisper_model():
-    global whisper_model
-    if whisper_model is None:
-        logger.info("Đang tải mô hình Whisper...")
-        from faster_whisper import WhisperModel
-        whisper_model = WhisperModel("base", device="auto", compute_type="default")
-    return whisper_model
-
 @app.post(
     "/api/voices/clone",
     summary="Clone giọng đọc từ file tải lên",
@@ -226,6 +216,7 @@ def get_whisper_model():
 async def clone_voice(
     file: UploadFile = File(...),
     name: str = Form(...),
+    transcript: str = Form(...),
     description: str = Form("Giọng tự tạo"),
     gender: str = Form("all"),
     icon: str = Form("record_voice_over"),
@@ -246,19 +237,13 @@ async def clone_voice(
         with open(temp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
             
-        # Đọc và tự động cắt lấy 10 giây đầu tiên, resample về 16000Hz (chuẩn VoxCPM2)
-        y, sr = librosa.load(temp_path, sr=16000, duration=10.0)
+        # Đọc và tự động cắt lấy 5 giây đầu tiên, resample về 16000Hz (chuẩn VoxCPM2)
+        y, sr = librosa.load(temp_path, sr=16000, duration=5.0)
         
         # Save to custom directory
         wav_path = CUSTOM_VOICES_DIR / f"{custom_id}.wav"
         sf.write(wav_path, y, sr)
 
-        # Chạy nhận dạng giọng nói tự động (ASR)
-        logger.info(f"Đang nhận dạng giọng nói cho {custom_id}...")
-        model = get_whisper_model()
-        segments, info = model.transcribe(str(wav_path), beam_size=5)
-        transcript = " ".join([segment.text for segment in segments]).strip()
-        logger.info(f"Transcript nhận diện: {transcript}")
         
         # Append to custom_voices.json
         custom_voices = []

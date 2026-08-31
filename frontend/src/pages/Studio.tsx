@@ -26,17 +26,21 @@ export default function Studio() {
     addHistory,
     fetchVoices,
     setSelectedVoiceId,
+    pinnedVoices,
+    togglePin,
   } = useTTSStore();
 
-  const [progress, setProgress] = useState(0);
-  const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const carouselRef = useRef<HTMLDivElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isDown, setIsDown] = useState(false);
   const [startX, setStartX] = useState(0);
   const [gender, setGender] = useState<"all" | "male" | "female">("all");
-  const [voiceType, setVoiceType] = useState<"preset" | "custom">("preset");
+  const [voiceType, setVoiceType] = useState<"all" | "preset" | "custom">(
+    "all",
+  );
   const [playingPreviewUrl, setPlayingPreviewUrl] = useState<string | null>(
     null,
   );
@@ -106,13 +110,28 @@ export default function Studio() {
     }
   };
 
-  const filteredVoices = voices.filter(
-    (v) =>
-      (gender === "all" || v.gender === gender) &&
-      (voiceType === "preset"
-        ? !v.type || v.type === "preset"
-        : v.type === "custom"),
-  );
+  const filteredVoices = voices
+    .filter(
+      (v) =>
+        (gender === "all" || v.gender === gender) &&
+        (voiceType === "all" ||
+          (voiceType === "preset"
+            ? !v.type || v.type === "preset"
+            : v.type === "custom")),
+    )
+    .sort((a, b) => {
+      const aPinned = pinnedVoices?.includes(a.id) || false;
+      const bPinned = pinnedVoices?.includes(b.id) || false;
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      return 0;
+    });
+
+  useEffect(() => {
+    if (filteredVoices.length > 0) {
+      setSelectedVoiceId(filteredVoices[0].id);
+    }
+  }, [voices, gender, voiceType, pinnedVoices]);
 
   const handleGenerate = async () => {
     if (!text.trim()) {
@@ -122,27 +141,17 @@ export default function Studio() {
 
     setIsLoading(true);
     setAudioUrl(null);
-    setProgress(0);
+
     const toastId = toast.loading("Đang khởi tạo mô hình...", {
       duration: 30000,
     });
 
     // Ước tính thời gian xử lý: khoảng 1.5s cho mỗi 50 ký tự (với 10 timesteps)
-    const estimatedTimeMs = Math.max(
-      2000,
-      (text.length / 50) * (inference_timesteps / 10) * 1500,
-    );
-    const updateInterval = 100; // Cập nhật mỗi 100ms
-    const increment = 100 / (estimatedTimeMs / updateInterval);
-
-    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-    progressTimerRef.current = setInterval(() => {
-      setProgress((prev) => {
-        // Chạy tối đa đến 95% rồi dừng lại chờ kết quả thật
-        if (prev >= 95) return 95;
-        return prev + increment;
-      });
-    }, updateInterval);
+    setElapsedTime(0);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setElapsedTime((prev) => prev + 1);
+    }, 1000);
 
     try {
       const response = await fetch("http://localhost:8000/api/tts", {
@@ -169,7 +178,7 @@ export default function Studio() {
       const data = await response.json();
 
       // Hoàn thành tiến trình
-      setProgress(100);
+
       setAudioUrl(data.audio_url);
 
       addHistory({
@@ -195,10 +204,9 @@ export default function Studio() {
       }
     } catch (error: any) {
       toast.error(`Thất bại: ${error.message}`, { id: toastId });
-      setProgress(0);
     } finally {
       setIsLoading(false);
-      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+      if (timerRef.current) clearInterval(timerRef.current);
     }
   };
 
@@ -240,6 +248,12 @@ export default function Studio() {
                       Mẫu giọng đọc
                     </label>
                     <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-1 shadow-inner h-8">
+                      <button
+                        className={`px-3 py-1 rounded font-label-caps text-[10px] transition-all duration-300 ${voiceType === "all" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
+                        onClick={() => setVoiceType("all")}
+                      >
+                        TẤT CẢ
+                      </button>
                       <button
                         className={`px-3 py-1 rounded font-label-caps text-[10px] transition-all duration-300 ${voiceType === "preset" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
                         onClick={() => setVoiceType("preset")}
@@ -318,49 +332,78 @@ export default function Studio() {
                   </div>
                 ) : (
                   filteredVoices.map((voice) => (
-                    <div
-                      key={voice.id}
-                      className="snap-start shrink-0 w-36 h-40 relative group"
-                    >
-                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <>
+                      <div
+                        key={voice.id}
+                        className="snap-start shrink-0 w-36 h-40 relative group"
+                      >
+                        <div className="absolute top-2 left-2 opacity-100 z-10">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              togglePin(voice.id);
+                            }}
+                            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${pinnedVoices?.includes(voice.id) ? "text-primary bg-primary/10 shadow-[0_0_10px_rgba(245,158,11,0.2)]" : "text-primary/40 hover:text-primary/80 opacity-0 group-hover:opacity-100"}`}
+                            title={
+                              pinnedVoices?.includes(voice.id)
+                                ? "Bỏ ghim"
+                                : "Ghim lên đầu"
+                            }
+                          >
+                            <span
+                              className="material-symbols-outlined text-[16px]"
+                              style={{
+                                fontVariationSettings: pinnedVoices?.includes(
+                                  voice.id,
+                                )
+                                  ? "'FILL' 1"
+                                  : "'FILL' 0",
+                              }}
+                            >
+                              star
+                            </span>
+                          </button>
+                        </div>
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                          <button
+                            onClick={(e) => handlePlayPreview(voice.url, e)}
+                            className="w-7 h-7 rounded-full bg-primary/20 backdrop-blur text-primary flex items-center justify-center hover:bg-primary hover:text-on-primary transition-colors shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                            title={
+                              playingPreviewUrl === voice.url
+                                ? "Dừng phát"
+                                : "Nghe thử"
+                            }
+                          >
+                            <span
+                              className="material-symbols-outlined text-[16px]"
+                              style={{ fontVariationSettings: "'FILL' 1" }}
+                            >
+                              {playingPreviewUrl === voice.url
+                                ? "pause"
+                                : "play_arrow"}
+                            </span>
+                          </button>
+                        </div>
                         <button
-                          onClick={(e) => handlePlayPreview(voice.url, e)}
-                          className="w-7 h-7 rounded-full bg-primary/20 backdrop-blur text-primary flex items-center justify-center hover:bg-primary hover:text-on-primary transition-colors shadow-[0_0_10px_rgba(245,158,11,0.2)]"
-                          title={
-                            playingPreviewUrl === voice.url
-                              ? "Dừng phát"
-                              : "Nghe thử"
-                          }
+                          onClick={() => setSelectedVoiceId(voice.id)}
+                          className={`w-full h-full flex flex-col items-center justify-center gap-2 p-3 rounded-xl bg-white/5 backdrop-blur-md transition-all duration-300 relative top-[1px] border ${selectedVoiceId === voice.id ? "border-primary ring-1 ring-primary shadow-[0_0_15px_rgba(245,158,11,0.2)] bg-primary/10" : "border-white/10 hover:border-primary/50 hover:bg-white/10"}`}
                         >
                           <span
-                            className="material-symbols-outlined text-[16px]"
-                            style={{ fontVariationSettings: "'FILL' 1" }}
+                            className={`material-symbols-outlined text-3xl ${selectedVoiceId === voice.id ? "text-primary" : "text-on-surface-variant group-hover:text-primary"}`}
                           >
-                            {playingPreviewUrl === voice.url
-                              ? "pause"
-                              : "play_arrow"}
+                            {voice.icon}
                           </span>
+                          <div className="text-center mt-1 w-full">
+                            <p className="font-label-caps text-sm text-on-surface truncate px-1">
+                              {voice.name}
+                            </p>
+                            <p className="text-xs text-on-surface-variant mt-1 line-clamp-2 px-1">
+                              {voice.description}
+                            </p>
+                          </div>
                         </button>
                       </div>
-                      <button
-                        onClick={() => setSelectedVoiceId(voice.id)}
-                        className={`w-full h-full flex flex-col items-center justify-center gap-2 p-3 rounded-xl bg-white/5 backdrop-blur-md transition-all duration-300 relative top-[1px] border ${selectedVoiceId === voice.id ? "border-primary ring-1 ring-primary shadow-[0_0_15px_rgba(245,158,11,0.2)] bg-primary/10" : "border-white/10 hover:border-primary/50 hover:bg-white/10"}`}
-                      >
-                        <span
-                          className={`material-symbols-outlined text-3xl ${selectedVoiceId === voice.id ? "text-primary" : "text-on-surface-variant group-hover:text-primary"}`}
-                        >
-                          {voice.icon}
-                        </span>
-                        <div className="text-center mt-1 w-full">
-                          <p className="font-label-caps text-sm text-on-surface truncate px-1">
-                            {voice.name}
-                          </p>
-                          <p className="text-xs text-on-surface-variant mt-1 line-clamp-2 px-1">
-                            {voice.description}
-                          </p>
-                        </div>
-                      </button>
-                    </div>
+                    </>
                   ))
                 )}
               </div>
@@ -399,23 +442,24 @@ export default function Studio() {
                   {text.length} / 5000 chars
                 </span>
               </div>
-
-              {/* Fake Progress Bar */}
               {isLoading && (
-                <div className="w-full mt-2 flex flex-col gap-2">
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-xs font-label-caps text-primary animate-pulse">
-                      Đang tổng hợp giọng nói...
+                <div className="flex flex-col gap-3 mt-2 animate-in fade-in zoom-in-95 bg-primary/5 border border-primary/20 rounded-xl p-4 shadow-[0_0_15px_rgba(245,158,11,0.05)]">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-label-caps text-primary flex items-center gap-3">
+                      <span className="material-symbols-outlined animate-spin text-[20px]">
+                        progress_activity
+                      </span>
+                      Đang xử lý âm thanh...
                     </span>
-                    <span className="text-xs font-mono-data text-primary">
-                      {Math.round(progress)}%
-                    </span>
-                  </div>
-                  <div className="w-full h-2 bg-surface-dim rounded-full overflow-hidden border border-white/5 shadow-inner">
-                    <div
-                      className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
-                      style={{ width: `${progress}%` }}
-                    />
+                    <div className="flex items-center gap-2 bg-surface-dim px-3 py-1.5 rounded-lg border border-primary/20">
+                      <span className="material-symbols-outlined text-[16px] text-primary">
+                        timer
+                      </span>
+                      <span className="text-sm font-mono-data text-primary">
+                        {String(Math.floor(elapsedTime / 60)).padStart(2, "0")}:
+                        {String(elapsedTime % 60).padStart(2, "0")}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -431,49 +475,61 @@ export default function Studio() {
                     </span>
                     Âm thanh đầu ra
                   </span>
-                  <button
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      if (!audioUrl) return;
-                      try {
-                        const toastId = toast.loading(
-                          "Đang chuẩn bị file tải xuống...",
-                        );
-                        const response = await fetch(audioUrl);
-                        const blob = await response.blob();
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.style.display = "none";
-                        a.href = url;
-                        const filename =
-                          audioUrl.split("/").pop() ||
-                          `audio.${useTTSStore.getState().audioFormat}`;
-                        a.download = filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        window.URL.revokeObjectURL(url);
-                        document.body.removeChild(a);
-                        toast.success("Tải xuống thành công!", { id: toastId });
-                      } catch (err) {
-                        toast.error("Lỗi khi tải file");
-                      }
-                    }}
-                    className="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 hover:border-primary/30"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">
-                      download
-                    </span>
-                    <span className="text-xs font-label-caps">Tải xuống</span>
-                  </button>
+
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 bg-surface-dim px-2 py-1 rounded border border-white/10 text-on-surface-variant font-mono-data text-[10px]">
+                      <span className="material-symbols-outlined text-[14px]">
+                        timer
+                      </span>
+                      {String(Math.floor(elapsedTime / 60)).padStart(2, "0")}:
+                      {String(elapsedTime % 60).padStart(2, "0")}
+                    </div>
+                    <button
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        if (!audioUrl) return;
+                        try {
+                          const toastId = toast.loading(
+                            "Đang chuẩn bị file tải xuống...",
+                          );
+                          const response = await fetch(audioUrl);
+                          const blob = await response.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.style.display = "none";
+                          a.href = url;
+                          const filename =
+                            audioUrl.split("/").pop() ||
+                            `audio.${useTTSStore.getState().audioFormat}`;
+                          a.download = filename;
+                          document.body.appendChild(a);
+                          a.click();
+                          window.URL.revokeObjectURL(url);
+                          document.body.removeChild(a);
+                          toast.success("Tải xuống thành công!", {
+                            id: toastId,
+                          });
+                        } catch (err) {
+                          toast.error("Lỗi khi tải xuống.");
+                        }
+                      }}
+                      className="px-4 py-1.5 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 rounded-md font-label-caps text-xs transition-colors shadow-sm flex items-center gap-2"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">
+                        download
+                      </span>
+                      TẢI VỀ
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center w-full mt-2">
+                <div className="flex items-center gap-4">
                   <audio
-                    controls
-                    autoPlay
                     src={audioUrl}
-                    className="w-full h-12 rounded-lg focus:outline-none"
+                    controls
+                    className="w-full h-10 outline-none"
+                    autoPlay
                     style={{ colorScheme: "dark" }}
-                  />
+                  ></audio>
                 </div>
               </div>
             )}

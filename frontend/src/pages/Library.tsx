@@ -12,6 +12,29 @@ function AudioRecordItem({ record, removeHistory }: { record: AudioRecord, remov
 
   const isLongText = record.text.length > 120;
 
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!record.url) return;
+    try {
+      const toastId = toast.loading("Đang chuẩn bị file tải xuống...");
+      const response = await fetch(record.url);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = url;
+      const filename = record.url.split("/").pop() || "audio.wav";
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success("Tải xuống thành công!", { id: toastId });
+    } catch (err) {
+      toast.error("Lỗi khi tải xuống.");
+    }
+  };
+
   return (
     <div className="p-6 hover:bg-surface-variant/40 transition-colors flex flex-col gap-4">
       <div className="flex justify-between items-start gap-4">
@@ -79,16 +102,15 @@ function AudioRecordItem({ record, removeHistory }: { record: AudioRecord, remov
           </p>
         </div>
         <div className="flex gap-2">
-          <a
-            href={record.url}
-            download
-            className="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-white/10 hover:text-primary transition-colors"
-            title="Tải xuống"
-          >
-            <span className="material-symbols-outlined text-[20px]">
-              download
-            </span>
-          </a>
+          <button
+              onClick={handleDownload}
+              className="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-white/10 hover:text-primary transition-colors"
+              title="Tải xuống"
+            >
+              <span className="material-symbols-outlined text-[20px]">
+                download
+              </span>
+            </button>
           <button
             className="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-error/20 hover:text-error transition-colors"
             onClick={() => removeHistory(record.id)}

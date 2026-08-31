@@ -80,22 +80,18 @@ export function MainLayout() {
           <li>
             <Link
               to="/cloning-voice"
-              className="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface transition-all duration-300 ease-in-out font-label-caps text-label-caps"
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps",
+                location.pathname === "/cloning-voice"
+                  ? "text-primary border-r-2 border-primary bg-primary/5"
+                  : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
+              )}
             >
               <span className="material-symbols-outlined">
                 record_voice_over
               </span>
               Cloning Voice
             </Link>
-          </li>
-          <li>
-            <a
-              className="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface transition-all duration-300 ease-in-out font-label-caps text-label-caps"
-              href="#"
-            >
-              <span className="material-symbols-outlined">memory</span>
-              Mẫu AI
-            </a>
           </li>
         </ul>
       </nav>
