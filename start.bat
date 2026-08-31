@@ -14,4 +14,4 @@ echo Bam to hop phim Ctrl+C (va go Y) de tat toan bo.
 echo ===================================================
 echo.
 
-npx concurrently "cd backend && .\venv\Scripts\activate && uvicorn main:app --host 0.0.0.0 --port 8000" "cd frontend && pnpm dev" --names "BACKEND,WEB" --prefix-colors "blue,magenta"
+npx concurrently "cd backend && .\venv\Scripts\activate && uvicorn main:app --host 0.0.0.0 --port 8000 --reload" "cd frontend && pnpm dev" --names "BACKEND,WEB" --prefix-colors "blue,magenta"
