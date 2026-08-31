@@ -130,7 +130,7 @@ def generate_audio(
         cfg_value=cfg_value,
         inference_timesteps=inference_timesteps,
         normalize=normalize,
-        denoise=False,
+        denoise=VOXCPM_LOAD_DENOISER,
         retry_badcase=True,
     )
 
