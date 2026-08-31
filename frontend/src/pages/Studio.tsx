@@ -28,9 +28,11 @@ export default function Studio() {
     setSelectedVoiceId,
     pinnedVoices,
     togglePin,
+    projects,
   } = useTTSStore();
 
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const carouselRef = useRef<HTMLDivElement>(null);
@@ -184,6 +186,7 @@ export default function Studio() {
       addHistory({
         text,
         url: data.audio_url,
+        projectId: selectedProjectId || undefined,
         voiceId: selectedVoiceId,
         voiceName:
           voices.find((v) => v.id === selectedVoiceId)?.name || "Mặc định",
@@ -331,10 +334,10 @@ export default function Studio() {
                     </p>
                   </div>
                 ) : (
-                  filteredVoices.map((voice) => (
+                  filteredVoices.map((voice, index) => (
                     <>
                       <div
-                        key={voice.id}
+                        key={index}
                         className="snap-start shrink-0 w-36 h-40 relative group"
                       >
                         <div className="absolute top-2 left-2 opacity-100 z-10">
@@ -551,6 +554,28 @@ export default function Studio() {
             </div>
 
             <div className="flex flex-col gap-8">
+              {/* Project Selection */}
+              <div className="flex flex-col gap-4">
+                <label className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px]">
+                    workspaces
+                  </span>
+                  Lưu vào dự án
+                </label>
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  className="bg-surface-dim border border-white/5 rounded-lg px-4 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all font-body-md w-full cursor-pointer"
+                >
+                  <option value="">-- Thư viện chung --</option>
+                  {projects.map((p, index) => (
+                    <option key={index} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Format Selection */}
               <div className="flex flex-col gap-4">
                 <label className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2">

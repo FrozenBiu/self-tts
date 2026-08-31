@@ -1,95 +1,116 @@
-# self-tts (VoxCPM2 Studio)
+# 🎙️ VoxCPM2 Studio - Ứng dụng Text-to-Speech Chuyên Nghiệp
 
-Hệ thống tổng hợp giọng nói AI chất lượng cao (Text-to-Speech) sử dụng model VoxCPM2 với giao diện web quản lý hiện đại (Aureum Design System).
-
-Dự án được chia làm 2 phần độc lập: **Backend (Python/FastAPI)** và **Frontend (React/Vite)**.
-
-## 🛠️ Yêu cầu hệ thống
-
-- **Python 3.10+** (dành cho Backend)
-- **Node.js 18+** (dành cho Frontend)
-- **pnpm** (Trình quản lý package cho Frontend)
-
-### 💻 Yêu cầu phần cứng (Hardware Requirements)
-
-Dự án sử dụng mô hình AI (PyTorch + VoxCPM2), nên phần cứng đóng vai trò quan trọng:
-
-- **Card đồ họa (VGA):**
-  - **Khuyến nghị:** NVIDIA RTX (từ 2060, 3060, 4060 trở lên) với VRAM >= 6GB. Hệ thống sẽ sử dụng kiến trúc CUDA để sinh âm thanh cực kỳ nhanh (2-3 giây).
-  - **Laptop hoặc VGA AMD/Intel:** Các máy tính dùng VGA AMD (như Radeon 780M) hoặc không có card rời NVIDIA vẫn **chạy được bình thường**. Hệ thống sẽ tự động chuyển sang tính toán bằng **CPU**. Việc cài đặt không có gì thay đổi, tuy nhiên thời gian xử lý (Generate) sẽ lâu hơn một chút (khoảng 10-20 giây) tùy thuộc vào sức mạnh của CPU.
-- **Bộ nhớ (RAM):** Tối thiểu **16GB** (Khuyến nghị 24GB+). Rất quan trọng khi chạy bằng CPU hoặc khi load mô hình vào bộ nhớ.
-- **Ổ cứng:** Bắt buộc sử dụng **SSD** (ưu tiên NVMe) để có thể nạp mô hình `.safetensors` nặng vài GB một cách nhanh chóng.
+Một ứng dụng Text-to-Speech cao cấp, được xây dựng dựa trên mô hình **VoxCPM2**, mang lại trải nghiệm tạo và quản lý âm thanh như một phòng thu (Studio) chuyên nghiệp. Hệ thống bao gồm Frontend giao diện hiện đại (React + Vite + Tailwind CSS) và Backend mạnh mẽ xử lý AI (Python + FastAPI).
 
 ---
 
-## 🚀 Hướng dẫn cài đặt và chạy dự án
+## ✨ Tính Năng Nổi Bật
 
-### 1. Khởi động Backend (FastAPI / AI Model)
+- 🎛️ **Phòng Thu (Studio):** Tạo giọng nói từ văn bản với nhiều tham số tùy chỉnh chuyên sâu:
+  - Chọn giọng mẫu (Preset) hoặc giọng cá nhân (Custom).
+  - Tùy chỉnh cường độ (CFG Scale), số bước suy luận (Timesteps), Speed (Tốc độ), Pitch (Độ cao).
+  - Hỗ trợ lưu dưới định dạng `.mp3` và `.wav`.
+- 📁 **Quản Lý Dự Án (Projects):** Gom nhóm các file âm thanh theo từng dự án riêng biệt để dễ dàng quản lý khối lượng công việc lớn (ví dụ: làm Vlog, Audiobook, Video quảng cáo).
+- 🎧 **Thư Viện (Library):** Lưu trữ toàn bộ lịch sử tạo âm thanh, cho phép nghe lại, tải xuống nhanh chóng, sao chép văn bản, và di chuyển qua lại giữa các dự án.
+- 🗣️ **Sao Chép Giọng Nói (Cloning Voice):** (Đang phát triển) Hỗ trợ tải tệp âm thanh gốc lên để hệ thống tự động trích xuất đặc trưng và tạo ra giọng đọc y hệt.
+- ⚡ **Tối Ưu Hiệu Suất:**
+  - Giao diện (UI) mượt mà, hỗ trợ Dark Mode và các hiệu ứng hiện đại.
+  - Tích hợp bộ đệm (Cache Hit) ở backend giúp trả về âm thanh ngay lập tức (0ms) nếu tạo lại trùng văn bản và các tham số cũ.
 
-Mở terminal mới và thực hiện các lệnh sau:
+---
+
+## 🛠️ Yêu Cầu Hệ Thống
+
+Trước khi bắt đầu, đảm bảo máy tính của bạn đã cài đặt:
+
+- **Python 3.10+** (khuyên dùng Python 3.11).
+- **Node.js v18+**.
+- **pnpm** (Trình quản lý gói cho Node.js).
+- **FFmpeg** (Bắt buộc để xử lý âm thanh ở Backend).
+  - **Cài đặt nhanh trên Windows:** Mở terminal (với quyền Admin nếu cần) và chạy lệnh: `winget install Gyan.FFmpeg` (hoặc `winget install ffmpeg`).
+  - Sau khi cài đặt xong, hãy **khởi động lại máy tính** hoặc **khởi động lại Terminal/VSCode** để hệ thống nhận diện biến môi trường PATH của FFmpeg.
+
+---
+
+## 🚀 Hướng Dẫn Cài Đặt
+
+### 1. Cài đặt Backend (Python)
+
+Mở terminal và thực hiện các bước sau:
 
 ```bash
-# 1. Di chuyển vào thư mục backend
+# Di chuyển vào thư mục backend
 cd backend
 
-# 2. Tạo môi trường ảo (Virtual Environment)
+# Tạo môi trường ảo (Virtual Environment)
 python -m venv venv
 
-# 3. Kích hoạt môi trường ảo (trên Windows)
+# Kích hoạt môi trường ảo (Windows)
+# Powershell
 .\venv\Scripts\activate
+# Git bash
+source venv/Scripts/activate
 
-# 4. Cài đặt PyTorch hỗ trợ CUDA 12.4 (Quan trọng cho máy có card NVIDIA)
+# Cài đặt PyTorch hỗ trợ CUDA 12.4 (Quan trọng cho máy có card NVIDIA)
 # Lưu ý: Chạy lệnh này TRƯỚC để ép tải bản GPU, tránh tải nhầm bản CPU
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --upgrade --force-reinstall
 
-# 5. Cài đặt các thư viện cần thiết
-# Lưu ý: Cần sử dụng voxcpm==2.0.3 để tránh lỗi nhiễu âm thanh trên Windows
+# Cài đặt các thư viện cần thiết
 pip install -r requirements.txt
 
-# 6. Khởi chạy Server
-# python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# Khởi chạy server Backend
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-> 💡 **Khắc phục sự cố PyTorch (CPU):** Nếu bạn lỡ chạy cài file `requirements.txt` trước Bước 4, `pip` có thể đã tải nhầm bản CPU hoặc bản không tối ưu. Để sửa lại mà không cần xóa môi trường, hãy chạy 2 lệnh sau:
->
-> ```bash
-> pip uninstall torch torchvision torchaudio -y
-> pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-> ```
+_Backend sẽ chạy tại địa chỉ: `http://localhost:8000`_
 
-### 1.1. Cấu hình tối ưu AI theo dung lượng VRAM (Quan trọng cho máy yếu)
+### 2. Cài đặt Frontend (React + Vite)
 
-Dự án hỗ trợ tuỳ biến cấu hình phần cứng mà không cần sửa code. Nếu máy bạn có VRAM thấp (<= 8GB) hoặc cấu hình siêu mạnh (>= 12GB), hãy làm theo các bước sau:
-
-1. Vào thư mục `backend`.
-2. Đổi tên (hoặc copy) file `.env.example` thành `.env`.
-3. Mở file `.env` lên, bên trong đã có sẵn hướng dẫn chi tiết bằng tiếng Việt để bạn Bật/Tắt các tính năng (như Ép chạy nửa độ chính xác - Half Precision) dựa trên dung lượng VRAM thực tế của máy.
-
-_Server Backend sẽ chạy tại địa chỉ: `http://localhost:8000`_
-
-### 2. Khởi động Frontend (Giao diện Web)
-
-Mở một cửa sổ terminal **khác** (để chạy song song với backend) và thực hiện:
+Mở một tab terminal mới và thực hiện:
 
 ```bash
-# 1. Di chuyển vào thư mục frontend
+# Di chuyển vào thư mục frontend
 cd frontend
 
-# 2. Cài đặt các thư viện phụ thuộc bằng pnpm
+# Cài đặt các gói phụ thuộc bằng pnpm
 pnpm install
 
-# 3. Khởi chạy Development Server
+# Khởi chạy giao diện ứng dụng
 pnpm dev
 ```
 
-_Giao diện Web sẽ chạy tại địa chỉ: `http://localhost:5173`_
+_Frontend sẽ chạy tại địa chỉ: `http://localhost:5173`_
 
 ---
 
-## 🎯 Hướng dẫn sử dụng
+## 📖 Hướng Dẫn Sử Dụng
 
-1. Sau khi cả Backend và Frontend đều đã báo chạy thành công, hãy mở trình duyệt web.
-2. Truy cập vào **[http://localhost:5173](http://localhost:5173)**.
-3. Trong lần tổng hợp giọng nói đầu tiên, Backend có thể sẽ mất một chút thời gian để load model VoxCPM2 vào RAM/VRAM. Các lần tạo giọng nói tiếp theo sẽ nhanh hơn rất nhiều.
-4. Quản lý các file âm thanh đã tạo tại mục **Thư viện** ở thanh menu bên trái.
+1. **Truy cập Ứng dụng:** Mở trình duyệt và truy cập vào `http://localhost:5173`.
+2. **Tạo Dự Án Mới (Tùy chọn):**
+   - Chuyển sang tab **Dự án** trên menu bên trái.
+   - Bấm `Tạo dự án mới`, nhập tên và mô tả.
+3. **Sử Dụng Phòng Thu:**
+   - Quay lại tab **Phòng thu**.
+   - Nhập đoạn văn bản bạn muốn chuyển đổi thành giọng nói.
+   - Ở cột **Cài đặt mô hình** bên phải, chọn _Lưu vào dự án_ vừa tạo, chọn định dạng âm thanh (.MP3 hoặc .WAV) và các tham số kỹ thuật.
+   - Bấm **Bắt đầu tổng hợp**.
+4. **Quản lý Thư viện:**
+   - Tại tab **Thư viện**, bạn có thể xem lại toàn bộ lịch sử các âm thanh đã tạo.
+   - Tại đây có thể nghe thử, đổi dự án cho file audio, sao chép văn bản, hoặc nhấn nút **Tải xuống**.
+
+---
+
+## 🏗️ Cấu Trúc Mã Nguồn
+
+- `/backend/`: Chứa mã nguồn Python, API FastAPI, module AI (ModelScope/PyTorch).
+  - `main.py`: Entry point API.
+  - `model_handler.py`: Logic gọi mô hình TTS.
+  - `/presets/`, `/outputs/`: Nơi lưu trữ file âm thanh và config json.
+- `/frontend/`: Chứa ứng dụng React (Vite).
+  - `/src/pages/`: Các trang (Studio, Library, Projects, CloningVoice).
+  - `/src/store/`: Quản lý trạng thái bằng thư viện `zustand` (`useTTSStore.ts`).
+  - `/src/components/`: Chứa các Component dùng chung (UI Components).
+
+---
+
+_Phát triển bởi đội ngũ đam mê AI._

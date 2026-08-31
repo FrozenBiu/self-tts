@@ -2,7 +2,14 @@ import { useState } from "react";
 import { useTTSStore, type AudioRecord } from "../store/useTTSStore";
 import { toast } from "sonner";
 
-function AudioRecordItem({ record, removeHistory }: { record: AudioRecord, removeHistory: (id: string) => void }) {
+export function AudioRecordItem({
+  record,
+  removeHistory,
+}: {
+  record: AudioRecord;
+  removeHistory: (id: string) => void;
+}) {
+  const { projects, updateRecordProject } = useTTSStore();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const handleCopy = () => {
@@ -61,17 +68,21 @@ function AudioRecordItem({ record, removeHistory }: { record: AudioRecord, remov
                 onClick={handleCopy}
                 className="text-[11px] font-label-caps text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1"
               >
-                <span className="material-symbols-outlined text-[14px]">content_copy</span>
+                <span className="material-symbols-outlined text-[14px]">
+                  content_copy
+                </span>
                 Copy nội dung
               </button>
             </div>
           </div>
-          
+
           {/* Tham số cấu hình */}
           <div className="flex flex-wrap gap-2 items-center">
             {record.voiceName && (
               <span className="inline-flex items-center gap-1.5 rounded bg-primary/10 px-2 py-1 text-[11px] font-label-caps text-primary border border-primary/20">
-                <span className="material-symbols-outlined text-[14px]">record_voice_over</span>
+                <span className="material-symbols-outlined text-[14px]">
+                  record_voice_over
+                </span>
                 {record.voiceName}
               </span>
             )}
@@ -82,7 +93,8 @@ function AudioRecordItem({ record, removeHistory }: { record: AudioRecord, remov
             )}
             {record.pitch !== undefined && (
               <span className="inline-flex items-center rounded bg-surface-variant px-2 py-1 text-[11px] font-mono-data text-on-surface-variant border border-white/5">
-                Pitch: {record.pitch > 0 ? '+' : ''}{record.pitch.toFixed(1)}
+                Pitch: {record.pitch > 0 ? "+" : ""}
+                {record.pitch.toFixed(1)}
               </span>
             )}
             {record.seed !== undefined && (
@@ -98,19 +110,37 @@ function AudioRecordItem({ record, removeHistory }: { record: AudioRecord, remov
           </div>
 
           <p className="font-mono-data text-mono-data text-on-surface-variant/50 text-xs mt-1">
-            ID: {record.id.toUpperCase()} • {new Date(record.timestamp).toLocaleString("vi-VN")}
+            ID: {record.id.toUpperCase()} •{" "}
+            {new Date(record.timestamp).toLocaleString("vi-VN")}
           </p>
         </div>
         <div className="flex gap-2">
+          <select
+            value={record.projectId || ""}
+            onChange={(e) => {
+              updateRecordProject(record.id, e.target.value || undefined);
+              toast.success(
+                e.target.value ? "Đã gán vào dự án" : "Đã gỡ khỏi dự án",
+              );
+            }}
+            className="h-10 bg-surface-variant text-on-surface-variant font-label-caps text-xs px-3 rounded-lg border border-white/5 focus:outline-none focus:border-primary cursor-pointer hover:bg-white/10 transition-colors"
+          >
+            <option value="">-- Thư viện chung --</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
           <button
-              onClick={handleDownload}
-              className="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-white/10 hover:text-primary transition-colors"
-              title="Tải xuống"
-            >
-              <span className="material-symbols-outlined text-[20px]">
-                download
-              </span>
-            </button>
+            onClick={handleDownload}
+            className="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-white/10 hover:text-primary transition-colors"
+            title="Tải xuống"
+          >
+            <span className="material-symbols-outlined text-[20px]">
+              download
+            </span>
+          </button>
           <button
             className="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-error/20 hover:text-error transition-colors"
             onClick={() => removeHistory(record.id)}
@@ -127,7 +157,7 @@ function AudioRecordItem({ record, removeHistory }: { record: AudioRecord, remov
         controls
         src={record.url}
         className="w-full h-10 rounded focus:outline-none"
-        style={{ colorScheme: 'dark' }}
+        style={{ colorScheme: "dark" }}
       />
     </div>
   );
@@ -135,11 +165,11 @@ function AudioRecordItem({ record, removeHistory }: { record: AudioRecord, remov
 
 export default function Library() {
   const { history, removeHistory } = useTTSStore();
-  
+
   // Phân trang
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  
+
   const totalPages = Math.ceil(history.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const currentItems = history.slice(startIndex, startIndex + itemsPerPage);
@@ -175,31 +205,42 @@ export default function Library() {
           <>
             <div className="divide-y divide-white/5 border border-white/5 rounded-lg bg-surface-dim overflow-hidden">
               {currentItems.map((record) => (
-                <AudioRecordItem key={record.id} record={record} removeHistory={removeHistory} />
+                <AudioRecordItem
+                  key={record.id}
+                  record={record}
+                  removeHistory={removeHistory}
+                />
               ))}
             </div>
-            
+
             {/* Thanh điều hướng phân trang */}
             {totalPages > 1 && (
               <div className="flex justify-between items-center bg-surface-dim p-4 rounded-lg border border-white/5">
                 <button
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-label-caps text-xs transition-colors ${currentPage === 1 ? 'text-on-surface-variant/30 cursor-not-allowed' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-label-caps text-xs transition-colors ${currentPage === 1 ? "text-on-surface-variant/30 cursor-not-allowed" : "text-on-surface-variant hover:text-primary hover:bg-primary/10"}`}
                 >
-                  <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+                  <span className="material-symbols-outlined text-[16px]">
+                    chevron_left
+                  </span>
                   Trang trước
                 </button>
                 <div className="font-mono-data text-xs text-on-surface-variant">
-                  Trang <span className="text-primary">{currentPage}</span> / {totalPages}
+                  Trang <span className="text-primary">{currentPage}</span> /{" "}
+                  {totalPages}
                 </div>
                 <button
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
                   disabled={currentPage === totalPages}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-label-caps text-xs transition-colors ${currentPage === totalPages ? 'text-on-surface-variant/30 cursor-not-allowed' : 'text-on-surface-variant hover:text-primary hover:bg-primary/10'}`}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-label-caps text-xs transition-colors ${currentPage === totalPages ? "text-on-surface-variant/30 cursor-not-allowed" : "text-on-surface-variant hover:text-primary hover:bg-primary/10"}`}
                 >
                   Trang sau
-                  <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+                  <span className="material-symbols-outlined text-[16px]">
+                    chevron_right
+                  </span>
                 </button>
               </div>
             )}

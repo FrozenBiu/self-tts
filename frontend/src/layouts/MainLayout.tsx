@@ -93,6 +93,20 @@ export function MainLayout() {
               Cloning Voice
             </Link>
           </li>
+          <li>
+            <Link
+              to="/projects"
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps",
+                location.pathname === "/projects"
+                  ? "text-primary border-r-2 border-primary bg-primary/5"
+                  : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
+              )}
+            >
+              <span className="material-symbols-outlined">folder_shared</span>
+              Projects
+            </Link>
+          </li>
         </ul>
       </nav>
 
