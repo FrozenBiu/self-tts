@@ -1,6 +1,7 @@
 import { useTTSStore } from "../store/useTTSStore";
 import { toast } from "sonner";
 import React, { useRef, useState, useEffect, useCallback } from "react";
+import { downloadAudioFile } from "../utils/download";
 
 export default function Studio() {
   const {
@@ -823,33 +824,13 @@ export default function Studio() {
                       {String(elapsedTime % 60).padStart(2, "0")}
                     </div>
                     <button
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.preventDefault();
                         if (!audioUrl) return;
-                        try {
-                          const toastId = toast.loading(
-                            "Đang chuẩn bị file tải xuống...",
-                          );
-                          const response = await fetch(audioUrl);
-                          const blob = await response.blob();
-                          const url = window.URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.style.display = "none";
-                          a.href = url;
-                          const filename =
-                            audioUrl.split("/").pop() ||
-                            `audio.${useTTSStore.getState().audioFormat}`;
-                          a.download = filename;
-                          document.body.appendChild(a);
-                          a.click();
-                          window.URL.revokeObjectURL(url);
-                          document.body.removeChild(a);
-                          toast.success("Tải xuống thành công!", {
-                            id: toastId,
-                          });
-                        } catch (err) {
-                          toast.error("Lỗi khi tải xuống.");
-                        }
+                        const filename =
+                          audioUrl.split("/").pop() ||
+                          `audio.${useTTSStore.getState().audioFormat}`;
+                        downloadAudioFile(audioUrl, filename);
                       }}
                       className="px-4 py-1.5 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 rounded-md font-label-caps text-xs transition-colors shadow-sm flex items-center gap-2"
                     >
