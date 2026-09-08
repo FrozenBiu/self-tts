@@ -79,20 +79,22 @@ def load_model() -> None:
         dtype=dtype_val,
     )
 
-    # Nâng cấp thuật toán ước tính độ dài token cho tiếng Việt và tốc độ cao:
-    # 1. Tiếng Việt đơn âm tiết kèm thanh điệu cần thêm ~20% token đệm để không nuốt âm đuôi.
-    # 2. Khi speed > 1.0, không chia tuyến tính để tránh bóp nghẽn token sinh làm cụt chữ cuối câu.
-    orig_est = _model._estimate_target_tokens
+    # Cấu hình hệ số đệm độ dài token (mặc định 1.0 = chuẩn gốc của OmniVoice)
+    # Tuyệt đối không tự ý nhân > 1.0 (như 1.20) vì sẽ làm dư thừa token diffusion,
+    # khiến mô hình bị vấp, lặp từ, ậm ừ hoặc kéo dài âm vô lý ở cuối câu.
+    token_padding_factor = float(os.getenv("TOKEN_PADDING_FACTOR", "1.0"))
+    if token_padding_factor != 1.0:
+        orig_est = _model._estimate_target_tokens
 
-    def vietnamese_estimate_target_tokens(text, ref_text, num_ref_audio_tokens, speed=1.0):
-        est = orig_est(text, ref_text, num_ref_audio_tokens, speed=1.0)
-        # Thêm 20% token đệm cho tiếng Việt
-        est = est * 1.20
-        if speed > 0 and speed != 1.0:
-            est = est / (speed ** 0.8)
-        return max(20, int(est))
+        def calibrated_estimate_target_tokens(text, ref_text, num_ref_audio_tokens, speed=1.0):
+            est = orig_est(text, ref_text, num_ref_audio_tokens, speed=1.0)
+            est = est * token_padding_factor
+            if speed > 0 and speed != 1.0:
+                est = est / (speed ** 0.8)
+            return max(20, int(est))
 
-    _model._estimate_target_tokens = vietnamese_estimate_target_tokens
+        _model._estimate_target_tokens = calibrated_estimate_target_tokens
+        logger.info(f"⚙️ Áp dụng TOKEN_PADDING_FACTOR = {token_padding_factor}")
 
     logger.info("✅ OmniVoice đã sẵn sàng phục vụ!")
 
@@ -128,8 +130,8 @@ def clean_vietnamese_text(text: str) -> str:
     """
     if not text:
         return ""
-    # Thay dấu hai chấm và chấm phẩy bằng dấu ngắt câu tự nhiên
-    text = re.sub(r":\s*", ". ", text)
+    # Thay dấu hai chấm và chấm phẩy bằng dấu phẩy để mô hình ngắt nhịp nhẹ nhàng, tự nhiên
+    text = re.sub(r":\s*", ", ", text)
     text = re.sub(r";\s*", ", ", text)
     # Loại bỏ ngoặc kép và ngoặc đơn lạ
     text = re.sub(r'["“”\'‘’«»]', '', text)
@@ -366,14 +368,6 @@ def generate_audio(
                     audio_np = np.array(audio_list[0], dtype=np.float32)
                     if audio_np.ndim > 1:
                         audio_np = audio_np.squeeze()
-
-                    # Gọt sạch khoảng lặng thực sự ranh giới (dùng top_db=45 để không xén mất âm cuối nhỏ nhẹ)
-                    try:
-                        trimmed_np, _ = librosa.effects.trim(audio_np, top_db=45)
-                        if len(trimmed_np) > SAMPLE_RATE * 0.2:
-                            audio_np = trimmed_np
-                    except Exception:
-                        pass
 
                     all_audios.append(audio_np)
 
