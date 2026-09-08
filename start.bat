@@ -1,6 +1,6 @@
 @echo off
 echo ===================================================
-echo        Khởi động hệ thống VoxCPM2 TTS
+echo        Khởi động hệ thống OmniVoice TTS (24kHz)
 echo ===================================================
 echo.
 echo Dang khoi dong ca Backend va Frontend...

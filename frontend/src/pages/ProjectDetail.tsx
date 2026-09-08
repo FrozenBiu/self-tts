@@ -1,4 +1,4 @@
-﻿import { useParams, Link } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useTTSStore } from "../store/useTTSStore";
 import { AudioRecordItem } from "./Library";
 
@@ -11,8 +11,8 @@ export default function ProjectDetail() {
 
   if (!project) {
     return (
-      <div className="w-full max-w-4xl mx-auto p-12 text-center glass-card rounded-2xl border border-white/5">
-        <h2 className="font-display text-2xl text-on-surface mb-4">Không tìm thấy dự án</h2>
+      <div className="w-full max-w-4xl 2k:max-w-6xl mx-auto p-12 2k:p-16 text-center glass-card rounded-2xl border border-white/5">
+        <h2 className="font-display text-2xl 2k:text-3xl text-on-surface mb-4">Không tìm thấy dự án</h2>
         <Link
           to="/projects"
           className="inline-flex items-center gap-2 bg-primary text-on-primary px-4 py-2 rounded-lg font-label-caps text-sm hover:shadow-lg transition-all"
@@ -25,7 +25,7 @@ export default function ProjectDetail() {
   }
 
   return (
-    <div className="glass-card rounded-xl w-full max-w-4xl p-6 md:p-8 flex flex-col gap-8 shadow-2xl animate-in fade-in duration-500 relative overflow-hidden">
+    <div className="glass-card rounded-xl w-full max-w-4xl 2k:max-w-6xl p-6 md:p-8 2k:p-10 flex flex-col gap-8 shadow-2xl animate-in fade-in duration-500 relative overflow-hidden">
       <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-bl-[100px] blur-[60px] pointer-events-none"></div>
       
       {/* Header */}

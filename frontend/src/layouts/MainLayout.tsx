@@ -6,60 +6,35 @@ export function MainLayout() {
 
   return (
     <div className="text-on-surface font-body-md min-h-screen flex flex-col">
-      {/* Top Navigation */}
-      <header className="fixed top-0 w-full z-50 bg-surface/60 backdrop-blur-xl border-b border-white/10 shadow-[0_0_20px_rgba(245,158,11,0.15)] h-20">
-        <div className="flex justify-between items-center px-margin-desktop h-full max-w-max-width mx-auto">
-          <div className="font-headline-lg text-headline-lg font-bold text-primary tracking-tight md:text-headline-lg text-headline-lg-mobile md:font-headline-lg font-headline-lg-mobile">
-            VoxCPM2 Studio
-          </div>
-          <div className="flex gap-4">
-            <button className="text-on-surface-variant hover:text-primary transition-colors duration-200 active:scale-95 transition-transform p-2 rounded-full">
-              <span
-                className="material-symbols-outlined"
-                style={{ fontVariationSettings: "'FILL' 0" }}
-              >
-                settings
-              </span>
-            </button>
-            <button className="text-on-surface-variant hover:text-primary transition-colors duration-200 active:scale-95 transition-transform p-2 rounded-full">
-              <span
-                className="material-symbols-outlined"
-                style={{ fontVariationSettings: "'FILL' 0" }}
-              >
-                account_circle
-              </span>
-            </button>
-          </div>
-        </div>
-      </header>
-
       {/* Side Navigation */}
-      <nav className="hidden md:flex fixed left-0 top-20 h-[calc(100vh-80px)] w-64 bg-surface/60 backdrop-blur-xl border-r border-white/10 flex-col py-6 z-40">
+      <nav className="hidden md:flex fixed left-0 h-full w-64 2k:w-72 bg-surface/60 backdrop-blur-xl border-r border-white/10 flex-col py-6 2k:py-8 z-40">
         <div className="px-6 mb-8 flex flex-col items-center">
-          <div className="w-16 h-16 rounded-full bg-surface-variant flex items-center justify-center mb-4 border border-white/10">
-            <span className="material-symbols-outlined text-3xl text-primary">
-              person
+          <div className="w-16 h-16 2k:w-20 2k:h-20 rounded-full bg-surface-variant flex items-center justify-center mb-4 border border-white/10 shadow-lg">
+            <span className="material-symbols-outlined text-3xl 2k:text-4xl text-primary">
+              graphic_eq
             </span>
           </div>
-          <h2 className="font-headline-lg text-headline-lg-mobile font-bold text-on-surface">
-            VoxCPM2
+          <h2 className="font-headline-lg text-headline-lg-mobile font-bold text-on-surface 2k:text-xl">
+            OmniVoice
           </h2>
-          <p className="font-mono-data text-mono-data text-on-surface-variant">
+          <p className="font-mono-data text-mono-data text-on-surface-variant 2k:text-sm">
             Phòng thu Pro v2.4
           </p>
         </div>
-        <ul className="flex-1 px-4 space-y-2">
+        <ul className="flex-1 px-4 2k:px-6 space-y-2 2k:space-y-3">
           <li>
             <Link
               to="/"
               className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps",
+                "flex items-center gap-3 px-4 py-3 2k:py-3.5 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps 2k:text-md",
                 location.pathname === "/"
-                  ? "text-primary border-r-2 border-primary bg-primary/5"
+                  ? "text-primary border-r-2 border-primary bg-primary/5 font-semibold"
                   : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
               )}
             >
-              <span className="material-symbols-outlined">graphic_eq</span>
+              <span className="material-symbols-outlined 2k:text-3xl">
+                graphic_eq
+              </span>
               Phòng thu
             </Link>
           </li>
@@ -67,13 +42,15 @@ export function MainLayout() {
             <Link
               to="/library"
               className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps",
+                "flex items-center gap-3 px-4 py-3 2k:py-3.5 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps 2k:text-md",
                 location.pathname === "/library"
-                  ? "text-primary border-r-2 border-primary bg-primary/5"
+                  ? "text-primary border-r-2 border-primary bg-primary/5 font-semibold"
                   : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
               )}
             >
-              <span className="material-symbols-outlined">folder_open</span>
+              <span className="material-symbols-outlined 2k:text-3xl">
+                folder_open
+              </span>
               Thư viện
             </Link>
           </li>
@@ -81,13 +58,13 @@ export function MainLayout() {
             <Link
               to="/cloning-voice"
               className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps",
+                "flex items-center gap-3 px-4 py-3 2k:py-3.5 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps 2k:text-md",
                 location.pathname === "/cloning-voice"
-                  ? "text-primary border-r-2 border-primary bg-primary/5"
+                  ? "text-primary border-r-2 border-primary bg-primary/5 font-semibold"
                   : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
               )}
             >
-              <span className="material-symbols-outlined">
+              <span className="material-symbols-outlined 2k:text-3xl">
                 record_voice_over
               </span>
               Cloning Voice
@@ -97,13 +74,15 @@ export function MainLayout() {
             <Link
               to="/projects"
               className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps",
+                "flex items-center gap-3 px-4 py-3 2k:py-3.5 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps 2k:text-md",
                 location.pathname === "/projects"
-                  ? "text-primary border-r-2 border-primary bg-primary/5"
+                  ? "text-primary border-r-2 border-primary bg-primary/5 font-semibold"
                   : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
               )}
             >
-              <span className="material-symbols-outlined">folder_shared</span>
+              <span className="material-symbols-outlined 2k:text-3xl">
+                folder_shared
+              </span>
               Projects
             </Link>
           </li>
@@ -111,7 +90,7 @@ export function MainLayout() {
       </nav>
 
       {/* Main Content Area */}
-      <main className="flex-1 md:ml-64 mt-20 p-margin-mobile md:p-margin-desktop flex justify-center items-start min-h-[calc(100vh-80px)] overflow-y-auto">
+      <main className="flex-1 md:ml-64 2k:ml-72 p-margin-mobile md:p-margin-desktop 2k:p-10 flex justify-center items-start min-h-[calc(100vh-80px)] overflow-y-auto">
         <Outlet />
       </main>
 

@@ -1,21 +1,25 @@
-# 🎙️ VoxCPM2 Studio - Ứng dụng Text-to-Speech Chuyên Nghiệp
+# 🎙️ OmniVoice Studio - Ứng dụng Text-to-Speech Chuyên Nghiệp (24kHz)
 
-Một ứng dụng Text-to-Speech cao cấp, được xây dựng dựa trên mô hình **VoxCPM2**, mang lại trải nghiệm tạo và quản lý âm thanh như một phòng thu (Studio) chuyên nghiệp. Hệ thống bao gồm Frontend giao diện hiện đại (React + Vite + Tailwind CSS) và Backend mạnh mẽ xử lý AI (Python + FastAPI).
+Một ứng dụng Text-to-Speech đa ngôn ngữ cao cấp, được xây dựng dựa trên mô hình **OmniVoice** (k2-fsa), mang lại trải nghiệm tạo và quản lý âm thanh như một phòng thu (Studio) chuyên nghiệp. Hệ thống bao gồm Frontend giao diện hiện đại (React + Vite + Tailwind CSS + Sonner) và Backend AI mạnh mẽ (Python + FastAPI + OmniVoice Diffusion).
 
 ---
 
 ## ✨ Tính Năng Nổi Bật
 
-- 🎛️ **Phòng Thu (Studio):** Tạo giọng nói từ văn bản với nhiều tham số tùy chỉnh chuyên sâu:
-  - Chọn giọng mẫu (Preset) hoặc giọng cá nhân (Custom).
-  - Tùy chỉnh cường độ (CFG Scale), số bước suy luận (Timesteps), Speed (Tốc độ), Pitch (Độ cao).
-  - Hỗ trợ lưu dưới định dạng `.mp3` và `.wav`.
-- 📁 **Quản Lý Dự Án (Projects):** Gom nhóm các file âm thanh theo từng dự án riêng biệt để dễ dàng quản lý khối lượng công việc lớn (ví dụ: làm Vlog, Audiobook, Video quảng cáo).
-- 🎧 **Thư Viện (Library):** Lưu trữ toàn bộ lịch sử tạo âm thanh, cho phép nghe lại, tải xuống nhanh chóng, sao chép văn bản, và di chuyển qua lại giữa các dự án.
-- 🗣️ **Sao Chép Giọng Nói (Cloning Voice):** (Đang phát triển) Hỗ trợ tải tệp âm thanh gốc lên để hệ thống tự động trích xuất đặc trưng và tạo ra giọng đọc y hệt.
+- 🎛️ **Phòng Thu Đa Chế Độ (Studio):**
+  - **Voice Cloning:** Sao chép giọng từ mẫu hệ thống hoặc giọng cá nhân, tự động lưu và tái sử dụng bộ đệm embedding `.pt` (khởi tạo 0ms).
+  - **Voice Design:** Tự thiết kế giọng nói qua mô tả đặc tính (`instruct`: giới tính, độ tuổi, tông giọng, thì thầm, v.v.).
+  - **Auto Voice:** Tự động điều phối giọng ngẫu nhiên phù hợp với nội dung văn bản.
+  - **Thanh công cụ cảm xúc phi ngôn ngữ (Non-verbal symbols):** Chèn nhanh thẻ biểu cảm như `[laughter]`, `[sigh]`, `[surprise-ah]`, `[surprise-oh]`, `[dissatisfaction-hnn]`, `[question-ah]` vào văn bản.
+  - **Chất lượng Studio 24,000 Hz:** Âm thanh đầu ra trong trẻo, chi tiết cao, hỗ trợ xuất `.mp3` và `.wav`.
+- 📁 **Quản Lý Dự Án (Projects):** Gom nhóm các file âm thanh theo từng dự án riêng biệt (Podcast, Audiobook, Video quảng cáo, v.v.).
+- 🎧 **Thư Viện (Library):** Lưu trữ toàn bộ lịch sử tạo âm thanh, nghe lại, tải xuống nhanh chóng, sao chép văn bản và quản lý danh mục.
+- 🗣️ **Sao Chép Giọng Nói Tiện Lợi (Cloning Voice):**
+  - Tải file hoặc thu âm trực tiếp (3 - 15 giây).
+  - **Bóc băng tự động:** Tùy chọn nhập transcript hoặc để trống, hệ thống sẽ tự động dùng Whisper ASR để trích xuất văn bản và lưu prompt `.pt`.
 - ⚡ **Tối Ưu Hiệu Suất:**
-  - Giao diện (UI) mượt mà, hỗ trợ Dark Mode và các hiệu ứng hiện đại.
-  - Tích hợp bộ đệm (Cache Hit) ở backend giúp trả về âm thanh ngay lập tức (0ms) nếu tạo lại trùng văn bản và các tham số cũ.
+  - Tốc độ suy luận Diffusion siêu tốc (RTF ~0.025, nhanh gấp ~40 lần real-time).
+  - Tích hợp bộ đệm (Cache Hit) ở backend giúp trả về âm thanh ngay lập tức (0ms) cho các yêu cầu trùng lặp.
 
 ---
 

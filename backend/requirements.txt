@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────
-# VoxCPM2 TTS Backend — Python Dependencies
+# OmniVoice TTS Backend — Python Dependencies
 # ──────────────────────────────────────────────
 
 # API Framework
@@ -8,7 +8,9 @@ uvicorn[standard]
 python-multipart
 
 # AI Model
-voxcpm
+omnivoice>=0.2.1
+accelerate
+webdataset
 
 # Audio I/O
 soundfile

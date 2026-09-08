@@ -8,6 +8,9 @@ export interface AudioRecord {
   projectId?: string;
   voiceId?: string | null;
   voiceName?: string;
+  mode?: "clone" | "design" | "auto";
+  instruct?: string;
+  num_step?: number;
   cfg_value?: number;
   inference_timesteps?: number;
   seed?: number;
@@ -35,6 +38,9 @@ export interface Voice {
 
 interface TTSState {
   text: string;
+  mode: "clone" | "design";
+  instruct: string;
+  num_step: number;
   cfg_value: number;
   inference_timesteps: number;
   seed: number;
@@ -48,6 +54,9 @@ interface TTSState {
   selectedVoiceId: string | null;
   pinnedVoices: string[];
   projects: Project[];
+  setMode: (mode: "clone" | "design") => void;
+  setInstruct: (instruct: string) => void;
+  setNumStep: (num_step: number) => void;
   addProject: (name: string, description?: string) => void;
   deleteProject: (id: string) => void;
   updateRecordProject: (recordId: string, projectId?: string) => void;
@@ -70,8 +79,11 @@ interface TTSState {
 
 export const useTTSStore = create<TTSState>((set, get) => ({
   text: "",
+  mode: "clone",
+  instruct: "",
+  num_step: 32,
   cfg_value: 2.0,
-  inference_timesteps: 10,
+  inference_timesteps: 32,
   seed: 42,
   speed: 1.0,
   pitch: 0.0,
@@ -125,9 +137,13 @@ export const useTTSStore = create<TTSState>((set, get) => ({
       localStorage.setItem("tts_pinned_voices", JSON.stringify(newPinned));
       return { pinnedVoices: newPinned };
     }),
+  setMode: (mode) => set({ mode }),
+  setInstruct: (instruct) => set({ instruct }),
+  setNumStep: (num_step) => set({ num_step, inference_timesteps: num_step }),
   setText: (text) => set({ text }),
   setCfgValue: (cfg_value) => set({ cfg_value }),
-  setTimesteps: (inference_timesteps) => set({ inference_timesteps }),
+  setTimesteps: (inference_timesteps) =>
+    set({ inference_timesteps, num_step: inference_timesteps }),
   setSeed: (seed) => set({ seed }),
   setSpeed: (speed) => set({ speed }),
   setPitch: (pitch) => set({ pitch }),
