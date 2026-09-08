@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTTSStore, type AudioRecord } from "../store/useTTSStore";
 import { toast } from "sonner";
+import { downloadAudioFile } from "../utils/download";
 
 export function AudioRecordItem({
   record,
@@ -19,27 +20,10 @@ export function AudioRecordItem({
 
   const isLongText = record.text.length > 120;
 
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleDownload = (e: React.MouseEvent) => {
     e.preventDefault();
     if (!record.url) return;
-    try {
-      const toastId = toast.loading("Đang chuẩn bị file tải xuống...");
-      const response = await fetch(record.url);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.style.display = "none";
-      a.href = url;
-      const filename = record.url.split("/").pop() || "audio.wav";
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      toast.success("Tải xuống thành công!", { id: toastId });
-    } catch (err) {
-      toast.error("Lỗi khi tải xuống.");
-    }
+    downloadAudioFile(record.url);
   };
 
   return (

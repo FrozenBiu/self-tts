@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, File, UploadFile, Form
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -195,6 +196,29 @@ async def health_check():
         model_loaded=(_model is not None),
         model_name="k2-fsa/OmniVoice",
         sample_rate=SAMPLE_RATE,
+    )
+
+
+@app.get(
+    "/api/download/{filename}",
+    summary="Tải trực tiếp file âm thanh từ hệ thống",
+    tags=["TTS"],
+)
+async def download_file(filename: str):
+    file_path = OUTPUTS_DIR / filename
+    if not file_path.exists():
+        custom_path = CUSTOM_VOICES_DIR / filename
+        if custom_path.exists():
+            file_path = custom_path
+        else:
+            raise HTTPException(status_code=404, detail="File âm thanh không tồn tại hoặc đã bị xóa.")
+
+    media_type = "audio/mpeg" if filename.lower().endswith(".mp3") else "audio/wav"
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
