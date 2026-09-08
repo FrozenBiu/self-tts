@@ -39,7 +39,13 @@ SAMPLE_RATE = 24_000
 OMNIVOICE_DEVICE = os.getenv("OMNIVOICE_DEVICE", "cuda").lower()
 OMNIVOICE_DTYPE = os.getenv("OMNIVOICE_DTYPE", "float16").lower()
 OMNIVOICE_MODEL_ID = os.getenv("OMNIVOICE_MODEL_ID", "k2-fsa/OmniVoice")
-DEFAULT_NUM_STEP = int(os.getenv("DEFAULT_NUM_STEP", "32"))
+DEFAULT_NUM_STEP = int(os.getenv("DEFAULT_NUM_STEP", "10"))
+MAX_CHUNK_CHARS = int(os.getenv("MAX_CHUNK_CHARS", "450"))
+ENABLE_WARMUP_ONCE = os.getenv("ENABLE_WARMUP_ONCE", "false").lower() in ("true", "1", "yes")
+ENABLE_EMPTY_CACHE = os.getenv("ENABLE_EMPTY_CACHE", "false").lower() in ("true", "1", "yes")
+CUDNN_BENCHMARK = os.getenv("CUDNN_BENCHMARK", "true").lower() in ("true", "1", "yes")
+
+_has_warmed_up = False
 
 
 def load_model() -> None:
@@ -56,6 +62,9 @@ def load_model() -> None:
     if OMNIVOICE_DEVICE == "cuda" and torch.cuda.is_available():
         device_map = "cuda:0"
         dtype_val = torch.float16 if OMNIVOICE_DTYPE == "float16" else torch.float32
+        if CUDNN_BENCHMARK:
+            torch.backends.cudnn.benchmark = True
+            logger.info("⚡ Đã bật torch.backends.cudnn.benchmark để tối ưu tốc độ tính toán ma trận.")
     else:
         device_map = "cpu"
         dtype_val = torch.float32
@@ -132,13 +141,15 @@ def clean_vietnamese_text(text: str) -> str:
     return text
 
 
-def split_into_chunks(text: str, max_chars: int = 240) -> list[str]:
+def split_into_chunks(text: str, max_chars: int | None = None) -> list[str]:
     """
     Chia nhỏ văn bản thành các đoạn tự nhiên và mạch lạc:
-    - Luôn phân tách theo đoạn văn (xuống dòng \\n) để giữ nhịp thở và cấu trúc văn bản.
+    - Luôn phân tách theo đoạn văn (xuống dòng \n) để giữ nhịp thở và cấu trúc văn bản.
     - Nếu đoạn văn dài hơn max_chars, ngắt tiếp theo dấu câu (. ? ! …).
     - Đảm bảo mỗi chunk luôn có dấu kết câu để mô hình hạ giọng dứt câu tự nhiên.
     """
+    if max_chars is None:
+        max_chars = MAX_CHUNK_CHARS
     cleaned = clean_vietnamese_text(text)
     paragraphs = [p.strip() for p in re.split(r"\n+", cleaned) if p.strip()]
 
@@ -259,33 +270,25 @@ def generate_audio(
             torch.cuda.manual_seed_all(seed)
 
     cleaned_full_text = clean_vietnamese_text(text)
-    chunks = split_into_chunks(text, max_chars=240)
+    chunks = split_into_chunks(text, max_chars=MAX_CHUNK_CHARS)
 
     logger.info(
-        f"OmniVoice synthesis | Mode={mode} | num_step={num_step} | Chunks={len(chunks)} | Text: '{cleaned_full_text[:60]}…'"
+        f"OmniVoice synthesis | Mode={mode} | num_step={num_step} | Chunks={len(chunks)} | max_chars={MAX_CHUNK_CHARS} | Text: '{cleaned_full_text[:60]}…'"
     )
 
     all_audios: list[np.ndarray] = []
     design_voice_clone_prompt: VoiceClonePrompt | None = None
     clean_inst = sanitize_instruct(instruct) if mode == "design" else None
 
-    # ─── [Voice Cloning] CUDA Warmup Phase ────────────────────────────────────
-    # Vấn đề: Chunk đầu tiên phải chịu chi phí khởi động GPU (CUDA kernel
-    # compilation, cuDNN algorithm selection, memory allocation). Các chunk sau
-    # dùng lại cache đó nên "trạng thái số học" của diffusion ổn định hơn,
-    # dẫn đến ngắt nghỉ và giọng đọc tự nhiên hơn ở đoạn cuối.
-    #
-    # Giải pháp: Chạy một lần inference ngắn với cùng voice_clone_prompt / ref_audio
-    # trước khi bắt đầu vòng lặp chunk thực, để GPU ở trạng thái "nóng" ngay
-    # từ chunk 1. Output warmup bị bỏ đi, không ghép vào audio cuối.
-    # ─────────────────────────────────────────────────────────────────────────
-    if mode == "clone":
+    # ─── [Voice Cloning] GPU Warmup Phase (Chỉ chạy 1 lần nếu được bật) ──────
+    global _has_warmed_up
+    if ENABLE_WARMUP_ONCE and not _has_warmed_up and mode == "clone":
         try:
-            logger.info("🔥 [Voice Cloning] Đang warmup GPU để đảm bảo chất lượng đồng đều từ chunk 1…")
+            logger.info("🔥 [Voice Cloning] Đang warmup GPU 1 lần duy nhất...")
             warmup_kwargs: dict = {
                 "text": "Xin chào.",
                 "language": "vi",
-                "num_step": num_step,
+                "num_step": min(8, num_step),
                 "guidance_scale": cfg_value,
                 "normalize_text": False,
                 "speed": speed,
@@ -297,29 +300,21 @@ def generate_audio(
                 if ref_text and ref_text.strip():
                     warmup_kwargs["ref_text"] = clean_vietnamese_text(ref_text)
             model.generate(**warmup_kwargs)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            logger.info("✅ [Voice Cloning] GPU warmup xong — bắt đầu sinh audio thực!")
+            _has_warmed_up = True
+            logger.info("✅ [Voice Cloning] GPU warmup lần đầu hoàn tất!")
         except Exception as e:
             logger.warning(f"⚠️ GPU warmup thất bại (không ảnh hưởng kết quả): {e}")
 
     # ─── [Voice Design] Warmup Phase ─────────────────────────────────────────
-    # Vấn đề: Trong mode "design", chunk 1 được sinh từ `instruct` thuần (chưa có
-    # ngữ cảnh giọng nói cụ thể), nên thường nghe cứng và kém tự nhiên hơn
-    # các chunk sau — vốn được clone từ audio chunk 1 đã có giọng rõ ràng.
-    #
-    # Giải pháp: Sinh trước một câu warmup ngắn để trích xuất VoiceClonePrompt,
-    # sau đó dùng prompt đó cho TẤT CẢ các chunk thực tế (kể cả chunk 1).
-    # Kết quả: Toàn bộ audio nghe đều và tự nhiên như "đoạn cuối" trước đây.
-    # ─────────────────────────────────────────────────────────────────────────
-    if mode == "design" and clean_inst:
+    # Trong mode "design", sinh trước câu ngắn để trích xuất prompt cho các chunk sau
+    if mode == "design" and clean_inst and len(chunks) > 1:
         try:
             logger.info("🎙️ [Voice Design] Đang sinh warmup để trích xuất VoiceClonePrompt cho toàn bộ audio…")
             warmup_text = "Xin chào, đây là giọng đọc thử nghiệm."
             warmup_list = model.generate(
                 text=warmup_text,
                 language="vi",
-                num_step=num_step,
+                num_step=min(8, num_step),
                 guidance_scale=cfg_value,
                 normalize_text=False,
                 speed=speed,
@@ -336,63 +331,61 @@ def generate_audio(
                     preprocess_prompt=True,
                 )
                 logger.info("✅ [Voice Design] Warmup hoàn tất — toàn bộ chunks sẽ dùng giọng nhất quán!")
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
         except Exception as e:
             logger.warning(f"⚠️ Warmup thất bại, fallback về mode instruct cho chunk 1: {e}")
 
     try:
-        for idx, chunk in enumerate(chunks):
-            logger.info(f"Đang sinh chunk [{idx + 1}/{len(chunks)}]: '{chunk[:50]}...'")
+        with torch.inference_mode():
+            for idx, chunk in enumerate(chunks):
+                logger.info(f"Đang sinh chunk [{idx + 1}/{len(chunks)}]: '{chunk[:50]}...'")
 
-            gen_kwargs = {
-                "text": chunk,
-                "language": "vi",
-                "num_step": num_step,
-                "guidance_scale": cfg_value,
-                "normalize_text": False,
-                "speed": speed,
-            }
+                gen_kwargs = {
+                    "text": chunk,
+                    "language": "vi",
+                    "num_step": num_step,
+                    "guidance_scale": cfg_value,
+                    "normalize_text": False,
+                    "speed": speed,
+                }
 
-            if mode == "clone":
-                if voice_clone_prompt is not None:
-                    gen_kwargs["voice_clone_prompt"] = voice_clone_prompt
-                elif ref_audio:
-                    gen_kwargs["ref_audio"] = ref_audio
-                    if ref_text and ref_text.strip():
-                        gen_kwargs["ref_text"] = clean_vietnamese_text(ref_text)
-            elif mode == "design":
-                if design_voice_clone_prompt is not None:
-                    # Dùng VoiceClonePrompt từ warmup để đảm bảo TOÀN BỘ chunks
-                    # (kể cả chunk 1) đều nghe nhất quán và tự nhiên như nhau
-                    gen_kwargs["voice_clone_prompt"] = design_voice_clone_prompt
-                elif clean_inst:
-                    # Fallback nếu warmup thất bại: chunk 1 vẫn dùng instruct
-                    gen_kwargs["instruct"] = clean_inst
+                if mode == "clone":
+                    if voice_clone_prompt is not None:
+                        gen_kwargs["voice_clone_prompt"] = voice_clone_prompt
+                    elif ref_audio:
+                        gen_kwargs["ref_audio"] = ref_audio
+                        if ref_text and ref_text.strip():
+                            gen_kwargs["ref_text"] = clean_vietnamese_text(ref_text)
+                elif mode == "design":
+                    if design_voice_clone_prompt is not None:
+                        gen_kwargs["voice_clone_prompt"] = design_voice_clone_prompt
+                    elif clean_inst:
+                        gen_kwargs["instruct"] = clean_inst
 
-            audio_list = model.generate(**gen_kwargs)
-            if audio_list and len(audio_list) > 0:
-                audio_np = np.array(audio_list[0], dtype=np.float32)
-                if audio_np.ndim > 1:
-                    audio_np = audio_np.squeeze()
+                audio_list = model.generate(**gen_kwargs)
+                if audio_list and len(audio_list) > 0:
+                    audio_np = np.array(audio_list[0], dtype=np.float32)
+                    if audio_np.ndim > 1:
+                        audio_np = audio_np.squeeze()
 
-                # Gọt sạch khoảng lặng thực sự ranh giới (dùng top_db=45 để không xén mất âm cuối nhỏ nhẹ)
-                try:
-                    trimmed_np, _ = librosa.effects.trim(audio_np, top_db=45)
-                    if len(trimmed_np) > SAMPLE_RATE * 0.2:
-                        audio_np = trimmed_np
-                except Exception:
-                    pass
+                    # Gọt sạch khoảng lặng thực sự ranh giới (dùng top_db=45 để không xén mất âm cuối nhỏ nhẹ)
+                    try:
+                        trimmed_np, _ = librosa.effects.trim(audio_np, top_db=45)
+                        if len(trimmed_np) > SAMPLE_RATE * 0.2:
+                            audio_np = trimmed_np
+                    except Exception:
+                        pass
 
-                all_audios.append(audio_np)
+                    all_audios.append(audio_np)
 
+                if ENABLE_EMPTY_CACHE and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+    finally:
+        if ENABLE_EMPTY_CACHE:
+            gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    finally:
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
     if not all_audios:
         raise ValueError("Không có âm thanh nào được tạo ra từ mô hình.")
