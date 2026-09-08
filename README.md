@@ -66,6 +66,9 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 
 # Cài đặt các thư viện cần thiết
 pip install -r requirements.txt
+
+# Chạy test
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 2. Cài đặt Frontend (React + Vite)

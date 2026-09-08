@@ -17,6 +17,8 @@ public class Win32Tray {
     public static extern IntPtr GetConsoleWindow();
     [DllImport("user32.dll")]
     public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 }
 "@
 
@@ -134,10 +136,38 @@ $menuExit = $contextMenu.Items.Add("Thoát hoàn toàn OmniVoice")
 $menuExit.add_Click({
     $notifyIcon.Visible = $false
     $notifyIcon.Dispose()
-    Get-Process | Where-Object { $_.MainWindowTitle -like '*OmniVoice*' -or $_.ProcessName -eq 'uvicorn' } | Stop-Process -Force -ErrorAction SilentlyContinue
+
+    # 1. Đóng Backend và Frontend theo port (8000 & 5173)
+    $ports = @(8000, 5173)
+    foreach ($port in $ports) {
+        $pids = (Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+        foreach ($p in $pids) {
+            Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # 2. Dừng các tiến trình thuộc dự án nhưng TUYỆT ĐỐI KHÔNG chạm vào trình duyệt
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.CommandLine -like "*$projectDir*" -and 
+        $_.Name -notmatch "msedge|chrome|firefox|brave|opera" -and
+        $_.ProcessId -ne $PID
+    } | ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+    # 3. Đóng cửa sổ Terminal của ứng dụng
+    if ($script:targetHWnd -eq [IntPtr]::Zero) {
+        $script:targetHWnd = Get-TerminalHWnd
+    }
+    if ($script:targetHWnd -ne [IntPtr]::Zero) {
+        [Win32Tray]::ShowWindow($script:targetHWnd, 9) | Out-Null
+        [Win32Tray]::PostMessage($script:targetHWnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+    }
+
     [System.Windows.Forms.Application]::Exit()
     Stop-Process -Id $PID -Force
 })
+
 
 $notifyIcon.ContextMenuStrip = $contextMenu
 
