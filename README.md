@@ -1,21 +1,30 @@
-# 🎙️ VoxCPM2 Studio - Ứng dụng Text-to-Speech Chuyên Nghiệp
+# 🎙️ OmniVoice Studio - Ứng dụng Text-to-Speech Chuyên Nghiệp (24kHz)
 
-Một ứng dụng Text-to-Speech cao cấp, được xây dựng dựa trên mô hình **VoxCPM2**, mang lại trải nghiệm tạo và quản lý âm thanh như một phòng thu (Studio) chuyên nghiệp. Hệ thống bao gồm Frontend giao diện hiện đại (React + Vite + Tailwind CSS) và Backend mạnh mẽ xử lý AI (Python + FastAPI).
+Một ứng dụng Text-to-Speech đa ngôn ngữ cao cấp, được xây dựng dựa trên mô hình **OmniVoice** (k2-fsa), mang lại trải nghiệm tạo và quản lý âm thanh như một phòng thu (Studio) chuyên nghiệp. Hệ thống bao gồm Frontend giao diện hiện đại (React + Vite + Tailwind CSS + Sonner) và Backend AI mạnh mẽ (Python + FastAPI + OmniVoice Diffusion).
 
 ---
 
 ## ✨ Tính Năng Nổi Bật
 
-- 🎛️ **Phòng Thu (Studio):** Tạo giọng nói từ văn bản với nhiều tham số tùy chỉnh chuyên sâu:
-  - Chọn giọng mẫu (Preset) hoặc giọng cá nhân (Custom).
-  - Tùy chỉnh cường độ (CFG Scale), số bước suy luận (Timesteps), Speed (Tốc độ), Pitch (Độ cao).
-  - Hỗ trợ lưu dưới định dạng `.mp3` và `.wav`.
-- 📁 **Quản Lý Dự Án (Projects):** Gom nhóm các file âm thanh theo từng dự án riêng biệt để dễ dàng quản lý khối lượng công việc lớn (ví dụ: làm Vlog, Audiobook, Video quảng cáo).
-- 🎧 **Thư Viện (Library):** Lưu trữ toàn bộ lịch sử tạo âm thanh, cho phép nghe lại, tải xuống nhanh chóng, sao chép văn bản, và di chuyển qua lại giữa các dự án.
-- 🗣️ **Sao Chép Giọng Nói (Cloning Voice):** (Đang phát triển) Hỗ trợ tải tệp âm thanh gốc lên để hệ thống tự động trích xuất đặc trưng và tạo ra giọng đọc y hệt.
+- 🎛️ **Phòng Thu Đa Chế Độ (Studio):**
+  - **Voice Cloning:** Sao chép giọng từ mẫu hệ thống hoặc giọng cá nhân, tự động lưu và tái sử dụng bộ đệm embedding `.pt` (khởi tạo 0ms).
+  - **Voice Design:** Tự thiết kế giọng nói qua mô tả đặc tính hoặc chọn nhanh từ bộ mẫu gợi ý sẵn (`instruct`: phong cách, giới tính, độ tuổi, tông giọng, thì thầm, v.v.) với giọng đọc đồng nhất xuyên suốt đoạn văn.
+  - **Thanh công cụ cảm xúc phi ngôn ngữ (Non-verbal symbols):** Chèn nhanh thẻ biểu cảm như `[laughter]`, `[sigh]`, `[surprise-ah]`, `[surprise-oh]`, `[dissatisfaction-hnn]`, `[question-ah]` vào văn bản.
+  - **Lưu Cấu Hình Mặc Định:** Nút **Lưu cấu hình** giúp ghi nhớ các thông số mô hình hay dùng (CFG, Tốc độ, Cao độ, Định dạng) cho các phiên làm việc sau.
+  - **Chất lượng Studio 24,000 Hz:** Âm thanh đầu ra trong trẻo, chi tiết cao, hỗ trợ xuất `.mp3` và `.wav`.
+- 🎲 **Tạo Giọng Random & Sao Chép Giọng (Cloning Voice):**
+  - **Tạo giọng Random:** Tự sinh các giọng nói ngẫu nhiên mới lạ, nghe thử trực tiếp, nếu ưng ý có thể lưu lại vào danh sách giọng để sử dụng lâu dài, hoặc hủy bỏ nhanh chóng.
+  - **Sao chép giọng (Clone Voice):** Tải file hoặc thu âm trực tiếp (3 - 15 giây).
+  - **Bóc băng tự động:** Tùy chọn nhập transcript hoặc để trống, hệ thống sẽ tự động dùng Whisper ASR để trích xuất văn bản và lưu prompt `.pt`.
+- 📁 **Quản Lý Dự Án (Projects):** Gom nhóm các file âm thanh theo từng dự án riêng biệt (Podcast, Audiobook, Video quảng cáo, v.v.).
+- 🎧 **Thư Viện (Library):** Lưu trữ toàn bộ lịch sử tạo âm thanh, nghe lại, tải xuống nhanh chóng, sao chép văn bản và quản lý danh mục.
+- 🖥️ **Tiện Ích Khởi Chạy 1-Click & System Tray:**
+  - **File `start.bat`:** Tự động khởi chạy cả Backend, Frontend và tự động mở trình duyệt ngay khi mô hình AI nạp xong.
+  - **Thu nhỏ xuống khay hệ thống (Hide to Tray):** Khi bấm nút thu nhỏ (`_`) trên Terminal, cửa sổ sẽ tự động ẩn xuống System Tray (khay đồng hồ) giúp màn hình làm việc luôn gọn gàng. Click đúp vào icon để mở lại bất cứ lúc nào.
+  - **Icon ứng dụng & Shortcut Desktop:** Tự động tạo Shortcut `OmniVoice TTS` ngoài màn hình Desktop với biểu tượng App chuyên nghiệp.
 - ⚡ **Tối Ưu Hiệu Suất:**
-  - Giao diện (UI) mượt mà, hỗ trợ Dark Mode và các hiệu ứng hiện đại.
-  - Tích hợp bộ đệm (Cache Hit) ở backend giúp trả về âm thanh ngay lập tức (0ms) nếu tạo lại trùng văn bản và các tham số cũ.
+  - Tốc độ suy luận Diffusion siêu tốc (RTF ~0.025, nhanh gấp ~40 lần real-time trên GPU).
+  - Tích hợp bộ đệm (Cache Hit) ở backend giúp trả về âm thanh ngay lập tức (0ms) cho các yêu cầu trùng lặp.
 
 ---
 
@@ -23,11 +32,11 @@ Một ứng dụng Text-to-Speech cao cấp, được xây dựng dựa trên m�
 
 Trước khi bắt đầu, đảm bảo máy tính của bạn đã cài đặt:
 
-- **Python 3.10+** (khuyên dùng Python 3.11).
+- **Python 3.10+** (khuyên dùng Python 3.10 hoặc 3.11).
 - **Node.js v18+**.
-- **pnpm** (Trình quản lý gói cho Node.js).
+- **pnpm** (Trình quản lý gói cho Node.js). Cài đặt nhanh: `npm install -g pnpm`.
 - **FFmpeg** (Bắt buộc để xử lý âm thanh ở Backend).
-  - **Cài đặt nhanh trên Windows:** Mở terminal (với quyền Admin nếu cần) và chạy lệnh: `winget install Gyan.FFmpeg` (hoặc `winget install ffmpeg`).
+  - **Cài đặt nhanh trên Windows:** Mở terminal (với quyền Admin nếu cần) và chạy: `winget install Gyan.FFmpeg` (hoặc `winget install ffmpeg`).
   - Sau khi cài đặt xong, hãy **khởi động lại máy tính** hoặc **khởi động lại Terminal/VSCode** để hệ thống nhận diện biến môi trường PATH của FFmpeg.
 
 ---
@@ -52,21 +61,16 @@ python -m venv venv
 source venv/Scripts/activate
 
 # Cài đặt PyTorch hỗ trợ CUDA 12.4 (Quan trọng cho máy có card NVIDIA)
-# Lưu ý: Chạy lệnh này TRƯỚC để ép tải bản GPU, tránh tải nhầm bản CPU
+# Lưu ý: Chạy lệnh này TRƯỚC để tải bản GPU, tránh tải nhầm bản CPU
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --upgrade --force-reinstall
 
 # Cài đặt các thư viện cần thiết
 pip install -r requirements.txt
-
-# Khởi chạy server Backend
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
-
-_Backend sẽ chạy tại địa chỉ: `http://localhost:8000`_
 
 ### 2. Cài đặt Frontend (React + Vite)
 
-Mở một tab terminal mới và thực hiện:
+Mở terminal tại thư mục dự án và thực hiện:
 
 ```bash
 # Di chuyển vào thư mục frontend
@@ -74,42 +78,63 @@ cd frontend
 
 # Cài đặt các gói phụ thuộc bằng pnpm
 pnpm install
-
-# Khởi chạy giao diện ứng dụng
-pnpm dev
 ```
-
-_Frontend sẽ chạy tại địa chỉ: `http://localhost:5173`_
 
 ---
 
-## 📖 Hướng Dẫn Sử Dụng
+## ⚡ Khởi Chạy Nhanh 1-Click (Khuyên Dùng)
 
-1. **Truy cập Ứng dụng:** Mở trình duyệt và truy cập vào `http://localhost:5173`.
-2. **Tạo Dự Án Mới (Tùy chọn):**
-   - Chuyển sang tab **Dự án** trên menu bên trái.
-   - Bấm `Tạo dự án mới`, nhập tên và mô tả.
-3. **Sử Dụng Phòng Thu:**
-   - Quay lại tab **Phòng thu**.
-   - Nhập đoạn văn bản bạn muốn chuyển đổi thành giọng nói.
-   - Ở cột **Cài đặt mô hình** bên phải, chọn _Lưu vào dự án_ vừa tạo, chọn định dạng âm thanh (.MP3 hoặc .WAV) và các tham số kỹ thuật.
-   - Bấm **Bắt đầu tổng hợp**.
-4. **Quản lý Thư viện:**
-   - Tại tab **Thư viện**, bạn có thể xem lại toàn bộ lịch sử các âm thanh đã tạo.
-   - Tại đây có thể nghe thử, đổi dự án cho file audio, sao chép văn bản, hoặc nhấn nút **Tải xuống**.
+Sau khi hoàn tất cài đặt lần đầu, bạn chỉ cần:
+
+1. **Khởi động ứng dụng:**
+   - Click đúp vào file **`start.bat`** tại thư mục gốc của dự án (hoặc click vào shortcut **`OmniVoice TTS`** ngoài màn hình Desktop).
+   - Hệ thống sẽ tự khởi động Backend & Frontend trên cùng một màn hình điều khiển, đồng thời **tự động mở trình duyệt** `http://localhost:5173` ngay khi mô hình AI nạp xong vào RAM/VRAM.
+2. **Thu nhỏ xuống khay hệ thống:**
+   - Nhấn nút thu nhỏ (`_`) trên cửa sổ Terminal, ứng dụng sẽ ẩn vào khay hệ thống cạnh đồng hồ.
+   - Click đúp vào icon để mở lại cửa sổ, hoặc click chuột phải để truy cập menu tiện ích.
+3. **Tạo lại Shortcut Desktop (nếu cần):**
+   - Click đúp vào file **`create_shortcut.bat`** để tạo ngay shortcut app ngoài Desktop với icon chuyên nghiệp.
+
+---
+
+## 📖 Hướng Dẫn Sử Dụng Chi Tiết
+
+1. **Sử Dụng Phòng Thu (Studio):**
+   - Chọn chế độ: **Voice Cloning** (theo mẫu có sẵn hoặc giọng clone) hoặc **Voice Design** (thiết kế phong cách giọng nói qua mô tả).
+   - Nhập đoạn văn bản cần đọc, có thể chèn nhanh các biểu cảm phi ngôn ngữ (`[laughter]`, `[sigh]`, v.v.).
+   - Điều chỉnh các thông số: Hướng dẫn (CFG), Số bước khuếch tán (Steps), Tốc độ, Cao độ và Định dạng (.mp3 / .wav).
+   - Bấm **Lưu cấu hình** để lưu lại các thông số hay dùng làm mặc định.
+   - Bấm **Bắt đầu tổng hợp** để tạo giọng đọc.
+2. **Trang Nhân Bản & Tạo Giọng (Cloning Voice):**
+   - **Tạo giọng ngẫu nhiên:** Nhấn `Tạo thử giọng mới`, nghe thử mẫu phát âm sinh ngẫu nhiên. Nếu thích, bấm `Lưu vào danh sách giọng` để dùng vĩnh viễn; nếu không thích, bấm `Hủy / Xóa`.
+   - **Clone giọng từ file âm thanh:** Tải lên file ghi âm mẫu (3 - 15 giây), hệ thống tự động bóc băng qua Whisper ASR và tạo embedding `.pt` tối ưu.
+3. **Quản Lý Dự Án (Projects) & Thư Viện (Library):**
+   - Tạo các thư mục dự án (Podcast, Audiobook, Video...) để phân loại.
+   - Thư viện tự động lưu trữ toàn bộ các file đã tạo, hỗ trợ nghe lại, đổi dự án và tải xuống tức thì.
 
 ---
 
 ## 🏗️ Cấu Trúc Mã Nguồn
 
-- `/backend/`: Chứa mã nguồn Python, API FastAPI, module AI (ModelScope/PyTorch).
-  - `main.py`: Entry point API.
-  - `model_handler.py`: Logic gọi mô hình TTS.
-  - `/presets/`, `/outputs/`: Nơi lưu trữ file âm thanh và config json.
-- `/frontend/`: Chứa ứng dụng React (Vite).
-  - `/src/pages/`: Các trang (Studio, Library, Projects, CloningVoice).
-  - `/src/store/`: Quản lý trạng thái bằng thư viện `zustand` (`useTTSStore.ts`).
-  - `/src/components/`: Chứa các Component dùng chung (UI Components).
+```text
+├── assets/                 # Icon ứng dụng (app.ico, app.png)
+├── backend/                # Server Python FastAPI & Mô hình OmniVoice AI
+│   ├── main.py             # Entrypoint FastAPI REST API
+│   ├── model_handler.py    # Xử lý suy luận TTS, cache embedding .pt, Whisper ASR
+│   ├── presets/            # Giọng mẫu hệ thống và giọng người dùng tạo
+│   ├── outputs/            # File âm thanh kết quả (.mp3, .wav)
+│   └── requirements.txt    # Danh sách thư viện Python
+├── frontend/               # Giao diện React + Vite + Tailwind CSS + Sonner
+│   ├── src/pages/          # Các trang (Studio, Library, Projects, CloningVoice)
+│   ├── src/store/          # Zustand State Management (useTTSStore.ts)
+│   └── src/components/     # UI components (Header, Sidebar, Player, v.v.)
+├── scripts/                # Scripts tiện ích
+│   ├── tray_manager.ps1    # Quản lý ẩn khay hệ thống (System Tray) & auto-open
+│   ├── create_desktop_shortcut.ps1 # Tạo shortcut ngoài Desktop với app icon
+│   └── generate_icon.py    # Script sinh icon ứng dụng chuẩn đa kích thước
+├── start.bat               # Trình khởi chạy 1-click toàn bộ hệ thống
+└── create_shortcut.bat     # Trình tạo shortcut Desktop 1-click
+```
 
 ---
 

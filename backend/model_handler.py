@@ -1,244 +1,440 @@
 """
 model_handler.py
 ────────────────
-Chứa toàn bộ logic liên quan đến VoxCPM2:
-  - Load mô hình vào VRAM (gọi 1 lần khi startup).
-  - generate_audio(): wrapper gọn gàng cho model.generate().
+Chứa toàn bộ logic liên quan đến OmniVoice (k2-fsa):
+  - Load mô hình OmniVoice (gọi 1 lần khi startup).
+  - create_voice_prompt(): trích xuất và lưu embedding VoiceClonePrompt (.pt).
+  - generate_audio(): sinh âm thanh chất lượng cao 24,000 Hz với 3 chế độ:
+      + Voice Cloning: dùng file .pt đã cache hoặc reference audio.
+      + Voice Design: tạo giọng nói từ mô tả instruct.
+      + Auto Voice: mô hình tự động chọn giọng phù hợp.
 """
 
 import os
-# pyrefly: ignore [missing-import]
-from dotenv import load_dotenv
+import gc
+import re
 import logging
-import soundfile as sf
 from pathlib import Path
-# pyrefly: ignore [missing-import]
-from voxcpm import VoxCPM
+from dotenv import load_dotenv
+import soundfile as sf
+import numpy as np
+import torch
+import librosa
 
-# Tự động tải biến môi trường từ file .env (nếu có)
+# pyrefly: ignore [missing-import]
+from omnivoice import OmniVoice, VoiceClonePrompt
+
+# Tự động tải biến môi trường từ file .env
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 # ─── Global model holder ────────────────────────────────────────────────────
-_model: VoxCPM | None = None
+_model: OmniVoice | None = None
 
-# Sample rate thực tế của VoxCPM2 = 16000 Hz (xác nhận qua model.tts_model.sample_rate)
-# KHÔNG dùng 48000 — audio sẽ bị phát nhanh gấp 3x
-SAMPLE_RATE = 16_000
+# Chuẩn sample rate của OmniVoice là 24,000 Hz
+SAMPLE_RATE = 24_000
 
-# Tên model trên HuggingFace Hub (hoặc thay bằng đường dẫn local nếu cần)
+# Đọc cấu hình từ .env
+OMNIVOICE_DEVICE = os.getenv("OMNIVOICE_DEVICE", "cuda").lower()
+OMNIVOICE_DTYPE = os.getenv("OMNIVOICE_DTYPE", "float16").lower()
+OMNIVOICE_MODEL_ID = os.getenv("OMNIVOICE_MODEL_ID", "k2-fsa/OmniVoice")
+DEFAULT_NUM_STEP = int(os.getenv("DEFAULT_NUM_STEP", "32"))
 
-# Lấy cấu hình tối ưu phần cứng từ .env
-VOXCPM_HALF_PRECISION = os.getenv("VOXCPM_HALF_PRECISION", "False").lower() in ("true", "1", "yes")
-VOXCPM_LOAD_DENOISER = os.getenv("VOXCPM_LOAD_DENOISER", "False").lower() in ("true", "1", "yes")
-VOXCPM_FORCE_CPU = os.getenv("VOXCPM_FORCE_CPU", "False").lower() in ("true", "1", "yes")
-VOXCPM_MODEL_VERSION = os.getenv("VOXCPM_MODEL_VERSION", "2")
-MODEL_ID = "openbmb/VoxCPM2" if VOXCPM_MODEL_VERSION == "2" else "JayLL13/VoxCPM-1.5-VN"
 
 def load_model() -> None:
     """
-    Load VoxCPM2 vào VRAM.
-    Gọi hàm này duy nhất một lần trong FastAPI startup event.
-    Cấu hình half_precision và load_denoiser sẽ được lấy từ file .env
+    Load OmniVoice vào VRAM / RAM.
+    Gọi hàm này duy nhất một lần trong FastAPI lifespan startup.
     """
     global _model
     if _model is not None:
-        logger.info("Model đã được load, bỏ qua.")
+        logger.info("Mô hình OmniVoice đã được tải trước đó, bỏ qua.")
         return
 
-    device_val = "cpu" if VOXCPM_FORCE_CPU else None
-    logger.info(f"Đang load model {MODEL_ID} vào VRAM (Half Precision={VOXCPM_HALF_PRECISION}, Denoiser={VOXCPM_LOAD_DENOISER}, Force CPU={VOXCPM_FORCE_CPU}) …")
-    _model = VoxCPM.from_pretrained(
-        MODEL_ID, 
-        load_denoiser=VOXCPM_LOAD_DENOISER,
-        device=device_val,
-        optimize=False
+    # Xác định thiết bị tính toán
+    if OMNIVOICE_DEVICE == "cuda" and torch.cuda.is_available():
+        device_map = "cuda:0"
+        dtype_val = torch.float16 if OMNIVOICE_DTYPE == "float16" else torch.float32
+    else:
+        device_map = "cpu"
+        dtype_val = torch.float32
+
+    logger.info(
+        f"🚀 Đang tải mô hình {OMNIVOICE_MODEL_ID} (Device={device_map}, Dtype={dtype_val}) …"
     )
-    
-    import torch
-    is_cpu_mode = VOXCPM_FORCE_CPU or not torch.cuda.is_available()
-    
-    if VOXCPM_HALF_PRECISION and not is_cpu_mode:
-        try:
-            logger.info("🔄 Đang ép mô hình chạy ở Half Precision (FP16) để tối ưu VRAM...")
-            _model.tts_model.half()
-            if hasattr(_model.tts_model, "config"):
-                _model.tts_model.config.dtype = "float16"
-                
-                # Cấu hình lại bộ nhớ đệm (KV Cache) từ bfloat16 sang float16
-                max_len = getattr(_model.tts_model.config, "max_length", 4096)
-                actual_device = getattr(_model.tts_model, "device", "cuda")
-                
-                if hasattr(_model.tts_model, "base_lm"):
-                    _model.tts_model.base_lm.setup_cache(1, max_len, actual_device, torch.float16)
-                if hasattr(_model.tts_model, "residual_lm"):
-                    _model.tts_model.residual_lm.setup_cache(1, max_len, actual_device, torch.float16)
-        except Exception as e:
-            logger.warning(f"⚠️ Không thể ép kiểu FP16: {e}")
-    elif VOXCPM_HALF_PRECISION and is_cpu_mode:
-        logger.info("⚠️ Bỏ qua Half Precision (FP16) vì hệ thống đang chạy bằng CPU.")
-            
-    logger.info("✅ Model load thành công!")
+
+    _model = OmniVoice.from_pretrained(
+        OMNIVOICE_MODEL_ID,
+        device_map=device_map,
+        dtype=dtype_val,
+    )
+
+    # Nâng cấp thuật toán ước tính độ dài token cho tiếng Việt và tốc độ cao:
+    # 1. Tiếng Việt đơn âm tiết kèm thanh điệu cần thêm ~20% token đệm để không nuốt âm đuôi.
+    # 2. Khi speed > 1.0, không chia tuyến tính để tránh bóp nghẽn token sinh làm cụt chữ cuối câu.
+    orig_est = _model._estimate_target_tokens
+
+    def vietnamese_estimate_target_tokens(text, ref_text, num_ref_audio_tokens, speed=1.0):
+        est = orig_est(text, ref_text, num_ref_audio_tokens, speed=1.0)
+        # Thêm 20% token đệm cho tiếng Việt
+        est = est * 1.20
+        if speed > 0 and speed != 1.0:
+            est = est / (speed ** 0.8)
+        return max(20, int(est))
+
+    _model._estimate_target_tokens = vietnamese_estimate_target_tokens
+
+    logger.info("✅ OmniVoice đã sẵn sàng phục vụ!")
 
 
-def get_model() -> VoxCPM:
-    """Trả về model instance đã load. Raise RuntimeError nếu chưa load."""
+def get_model() -> OmniVoice:
+    """Trả về OmniVoice instance đã load. Raise RuntimeError nếu chưa load."""
     if _model is None:
-        raise RuntimeError("Model chưa được khởi tạo. Kiểm tra startup event.")
+        raise RuntimeError("Mô hình OmniVoice chưa được khởi tạo. Vui lòng kiểm tra startup.")
     return _model
+
+
+def create_voice_prompt(ref_audio: str, ref_text: str | None = None) -> VoiceClonePrompt:
+    """
+    Trích xuất đặc trưng âm thanh và tạo VoiceClonePrompt.
+    Nếu ref_text là None hoặc rỗng, OmniVoice sẽ tự động dùng Whisper ASR để bóc băng.
+    """
+    model = get_model()
+    logger.info(f"Đang tạo VoiceClonePrompt từ ref_audio='{ref_audio}', ref_text={ref_text}")
+    prompt = model.create_voice_clone_prompt(
+        ref_audio=ref_audio,
+        ref_text=ref_text if (ref_text and ref_text.strip()) else None,
+        preprocess_prompt=True,
+    )
+    return prompt
+
+
+def clean_vietnamese_text(text: str) -> str:
+    """
+    Làm sạch văn bản tiếng Việt để tránh hiện tượng vấp, ngắt quãng hoặc lặp từ trong OmniVoice:
+    - Thay dấu hai chấm ':' và chấm phẩy ';' bằng dấu chấm/phẩy để mô hình ngắt nhịp tự nhiên.
+    - Loại bỏ các loại dấu ngoặc kép, ngoặc đơn lạ.
+    - Chuẩn hóa khoảng trắng và dấu câu liên tiếp.
+    """
+    if not text:
+        return ""
+    # Thay dấu hai chấm và chấm phẩy bằng dấu ngắt câu tự nhiên
+    text = re.sub(r":\s*", ". ", text)
+    text = re.sub(r";\s*", ", ", text)
+    # Loại bỏ ngoặc kép và ngoặc đơn lạ
+    text = re.sub(r'["“”\'‘’«»]', '', text)
+    # Chuẩn hóa nhiều dấu chấm, gạch ngang liên tiếp
+    text = re.sub(r"\.{2,}", ".", text)
+    text = re.sub(r"-{2,}", "-", text)
+    # Chuẩn hóa khoảng trắng
+    text = re.sub(r"[ \t]+", " ", text).strip()
+    return text
+
+
+def split_into_chunks(text: str, max_chars: int = 240) -> list[str]:
+    """
+    Chia nhỏ văn bản thành các đoạn tự nhiên và mạch lạc:
+    - Luôn phân tách theo đoạn văn (xuống dòng \\n) để giữ nhịp thở và cấu trúc văn bản.
+    - Nếu đoạn văn dài hơn max_chars, ngắt tiếp theo dấu câu (. ? ! …).
+    - Đảm bảo mỗi chunk luôn có dấu kết câu để mô hình hạ giọng dứt câu tự nhiên.
+    """
+    cleaned = clean_vietnamese_text(text)
+    paragraphs = [p.strip() for p in re.split(r"\n+", cleaned) if p.strip()]
+
+    chunks: list[str] = []
+    for p in paragraphs:
+        if len(p) <= max_chars:
+            chunks.append(p)
+            continue
+
+        # Phân tách theo ranh giới câu (. ? ! …)
+        sentences = re.split(r"(?<=[.?!…])\s+", p)
+        cur = ""
+        for s in sentences:
+            s = s.strip()
+            if not s:
+                continue
+            if not cur:
+                cur = s
+            elif len(cur) + len(s) + 1 <= max_chars:
+                cur += " " + s
+            else:
+                chunks.append(cur)
+                cur = s
+        if cur:
+            chunks.append(cur)
+
+    # Đảm bảo mỗi chunk kết thúc bằng dấu chấm ngắt câu nếu chưa có
+    final_chunks: list[str] = []
+    for c in chunks:
+        c = c.strip()
+        if c and not c.endswith((".", "!", "?", "…")):
+            c += "."
+        if c:
+            final_chunks.append(c)
+
+    return final_chunks or [cleaned]
+
+
+VALID_INSTRUCT_TAGS = {
+    "female", "male",
+    "child", "teenager", "young adult", "middle-aged", "elderly",
+    "very low pitch", "low pitch", "moderate pitch", "high pitch", "very high pitch",
+    "whisper",
+    "american accent", "australian accent", "british accent", "canadian accent",
+    "chinese accent", "indian accent", "japanese accent", "korean accent",
+    "portuguese accent", "russian accent",
+}
+
+INSTRUCT_SYNONYMS = {
+    "gentle": "moderate pitch",
+    "soft": "moderate pitch",
+    "soft tone": "moderate pitch",
+    "deep": "low pitch",
+    "deep voice": "low pitch",
+    "calm": "moderate pitch",
+    "sweet": "high pitch",
+    "energetic": "high pitch",
+    "news": "moderate pitch",
+    "broadcast news": "moderate pitch",
+    "mysterious": "whisper",
+}
+
+
+def sanitize_instruct(instruct: str | None) -> str | None:
+    """Lọc và chuẩn hóa instruct theo đúng bộ từ vựng OmniVoice hỗ trợ."""
+    if not instruct or not instruct.strip():
+        return None
+    raw_tags = [t.strip().lower() for t in re.split(r"[,，]", instruct) if t.strip()]
+    cleaned_tags: list[str] = []
+
+    for tag in raw_tags:
+        if tag in VALID_INSTRUCT_TAGS:
+            if tag not in cleaned_tags:
+                cleaned_tags.append(tag)
+        elif tag in INSTRUCT_SYNONYMS:
+            syn = INSTRUCT_SYNONYMS[tag]
+            if syn not in cleaned_tags:
+                cleaned_tags.append(syn)
+        else:
+            logger.warning(f"Bỏ qua instruct tag không hỗ trợ: '{tag}'")
+
+    if not cleaned_tags:
+        return "female, young adult, moderate pitch"
+
+    return ", ".join(cleaned_tags)
 
 
 def generate_audio(
     text: str,
     output_path: Path,
+    mode: str = "clone",
+    voice_clone_prompt: VoiceClonePrompt | None = None,
+    ref_audio: str | None = None,
+    ref_text: str | None = None,
+    instruct: str | None = None,
     cfg_value: float = 2.0,
-    inference_timesteps: int = 10,
-    prompt_wav_path: str | None = None,
-    prompt_text: str | None = None,
-    normalize: bool = True,
+    num_step: int | None = None,
     seed: int | None = 42,
     speed: float = 1.0,
     pitch: float = 0.0,
-    audio_format: str = "wav",
+    audio_format: str = "mp3",
 ) -> None:
     """
-    Goi model.generate() va luu ket qua ra file WAV.
+    Gọi OmniVoice.generate() và lưu file âm thanh 24kHz đầu ra.
 
-    VoxCPM2 (v2.0.3) co 2 che do hoat dong:
-    - Voice Design: Khong truyen prompt (chi dung text thuan tuy).
-    - Voice Cloning: Truyen prompt_wav_path + prompt_text.
-      Model se clone giong noi trong file WAV tham chieu.
-
-    Parameters
-    ----------
-    text              : Van ban can chuyen thanh giong noi.
-    output_path       : Duong dan file .wav dau ra.
-    cfg_value         : Guidance scale (1.0-3.0). Mac dinh 2.0.
-    inference_timesteps: So buoc diffusion (4-30). Cao hon = chat luong hon.
-    prompt_wav_path   : (Tuy chon) File WAV tham chieu de clone giong.
-    prompt_text       : (Tuy chon) Transcript chinh xac cua prompt_wav_path.
-    normalize         : Bat text normalization (so, ngay thang...).
+    Các chế độ (mode):
+      - 'clone' : Voice Cloning (dùng voice_clone_prompt đã cache hoặc ref_audio).
+      - 'design': Voice Design (dùng câu lệnh mô tả instruct, tự động neo giọng giữa các chunk).
     """
+    if num_step is None:
+        num_step = int(os.getenv("DEFAULT_NUM_STEP", str(DEFAULT_NUM_STEP)))
+
     model = get_model()
-    
+
     if seed is not None:
-        import torch
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
-    kwargs = dict(
-        text=text,
-        cfg_value=cfg_value,
-        inference_timesteps=inference_timesteps,
-        normalize=normalize,
-        denoise=VOXCPM_LOAD_DENOISER,
-        retry_badcase=True,
+
+    cleaned_full_text = clean_vietnamese_text(text)
+    chunks = split_into_chunks(text, max_chars=240)
+
+    logger.info(
+        f"OmniVoice synthesis | Mode={mode} | num_step={num_step} | Chunks={len(chunks)} | Text: '{cleaned_full_text[:60]}…'"
     )
 
-    if prompt_wav_path and prompt_text:
-        kwargs["prompt_wav_path"] = prompt_wav_path
-        kwargs["prompt_text"] = prompt_text
-        logger.info(f"Mode: Voice Cloning  |  ref='{prompt_wav_path}'")
-    else:
-        logger.info("Mode: Voice Design (Zero-shot)")
+    all_audios: list[np.ndarray] = []
+    design_voice_clone_prompt: VoiceClonePrompt | None = None
+    clean_inst = sanitize_instruct(instruct) if mode == "design" else None
 
-    logger.info(f"Đang tổng hợp: '{text[:60]}…'")
-    
-    import torch
-    import gc
-    import numpy as np
-    import re
-    
-    if VOXCPM_FORCE_CPU:
-        device_type = "cpu"
-    else:
-        device_type = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    # Chunking text into sentences to prevent VRAM overflow and Hallucinations
-    raw_chunks = re.split(r'(?<=[.!?\n])\s+', text)
-    chunks = [c.strip() for c in raw_chunks if c.strip()]
-    if not chunks:
-        chunks = [text]
+    # ─── [Voice Cloning] CUDA Warmup Phase ────────────────────────────────────
+    # Vấn đề: Chunk đầu tiên phải chịu chi phí khởi động GPU (CUDA kernel
+    # compilation, cuDNN algorithm selection, memory allocation). Các chunk sau
+    # dùng lại cache đó nên "trạng thái số học" của diffusion ổn định hơn,
+    # dẫn đến ngắt nghỉ và giọng đọc tự nhiên hơn ở đoạn cuối.
+    #
+    # Giải pháp: Chạy một lần inference ngắn với cùng voice_clone_prompt / ref_audio
+    # trước khi bắt đầu vòng lặp chunk thực, để GPU ở trạng thái "nóng" ngay
+    # từ chunk 1. Output warmup bị bỏ đi, không ghép vào audio cuối.
+    # ─────────────────────────────────────────────────────────────────────────
+    if mode == "clone":
+        try:
+            logger.info("🔥 [Voice Cloning] Đang warmup GPU để đảm bảo chất lượng đồng đều từ chunk 1…")
+            warmup_kwargs: dict = {
+                "text": "Xin chào.",
+                "language": "vi",
+                "num_step": num_step,
+                "guidance_scale": cfg_value,
+                "normalize_text": False,
+                "speed": speed,
+            }
+            if voice_clone_prompt is not None:
+                warmup_kwargs["voice_clone_prompt"] = voice_clone_prompt
+            elif ref_audio:
+                warmup_kwargs["ref_audio"] = ref_audio
+                if ref_text and ref_text.strip():
+                    warmup_kwargs["ref_text"] = clean_vietnamese_text(ref_text)
+            model.generate(**warmup_kwargs)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("✅ [Voice Cloning] GPU warmup xong — bắt đầu sinh audio thực!")
+        except Exception as e:
+            logger.warning(f"⚠️ GPU warmup thất bại (không ảnh hưởng kết quả): {e}")
 
-    all_audio = []
-    
+    # ─── [Voice Design] Warmup Phase ─────────────────────────────────────────
+    # Vấn đề: Trong mode "design", chunk 1 được sinh từ `instruct` thuần (chưa có
+    # ngữ cảnh giọng nói cụ thể), nên thường nghe cứng và kém tự nhiên hơn
+    # các chunk sau — vốn được clone từ audio chunk 1 đã có giọng rõ ràng.
+    #
+    # Giải pháp: Sinh trước một câu warmup ngắn để trích xuất VoiceClonePrompt,
+    # sau đó dùng prompt đó cho TẤT CẢ các chunk thực tế (kể cả chunk 1).
+    # Kết quả: Toàn bộ audio nghe đều và tự nhiên như "đoạn cuối" trước đây.
+    # ─────────────────────────────────────────────────────────────────────────
+    if mode == "design" and clean_inst:
+        try:
+            logger.info("🎙️ [Voice Design] Đang sinh warmup để trích xuất VoiceClonePrompt cho toàn bộ audio…")
+            warmup_text = "Xin chào, đây là giọng đọc thử nghiệm."
+            warmup_list = model.generate(
+                text=warmup_text,
+                language="vi",
+                num_step=num_step,
+                guidance_scale=cfg_value,
+                normalize_text=False,
+                speed=speed,
+                instruct=clean_inst,
+            )
+            if warmup_list and len(warmup_list) > 0:
+                warmup_np = np.array(warmup_list[0], dtype=np.float32)
+                if warmup_np.ndim > 1:
+                    warmup_np = warmup_np.squeeze()
+                warmup_tensor = torch.from_numpy(warmup_np)
+                design_voice_clone_prompt = model.create_voice_clone_prompt(
+                    ref_audio=(warmup_tensor, SAMPLE_RATE),
+                    ref_text=warmup_text,
+                    preprocess_prompt=True,
+                )
+                logger.info("✅ [Voice Design] Warmup hoàn tất — toàn bộ chunks sẽ dùng giọng nhất quán!")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception as e:
+            logger.warning(f"⚠️ Warmup thất bại, fallback về mode instruct cho chunk 1: {e}")
+
     try:
         for idx, chunk in enumerate(chunks):
-            logger.info(f"Đang tổng hợp chunk {idx+1}/{len(chunks)}: '{chunk[:60]}...'")
-            kwargs["text"] = chunk
-            
-            if VOXCPM_HALF_PRECISION and device_type == "cuda":
-                with torch.autocast(device_type=device_type, dtype=torch.float16):
-                    wav = model.generate(**kwargs)
-            else:
-                wav = model.generate(**kwargs)
+            logger.info(f"Đang sinh chunk [{idx + 1}/{len(chunks)}]: '{chunk[:50]}...'")
 
-            audio_chunk = np.array(wav, dtype=np.float32)
-            if audio_chunk.ndim > 1:
-                audio_chunk = audio_chunk.squeeze()
-                
-            all_audio.append(audio_chunk)
-            
-            # Clear cache immediately after each sentence
-            if device_type == "cuda":
+            gen_kwargs = {
+                "text": chunk,
+                "language": "vi",
+                "num_step": num_step,
+                "guidance_scale": cfg_value,
+                "normalize_text": False,
+                "speed": speed,
+            }
+
+            if mode == "clone":
+                if voice_clone_prompt is not None:
+                    gen_kwargs["voice_clone_prompt"] = voice_clone_prompt
+                elif ref_audio:
+                    gen_kwargs["ref_audio"] = ref_audio
+                    if ref_text and ref_text.strip():
+                        gen_kwargs["ref_text"] = clean_vietnamese_text(ref_text)
+            elif mode == "design":
+                if design_voice_clone_prompt is not None:
+                    # Dùng VoiceClonePrompt từ warmup để đảm bảo TOÀN BỘ chunks
+                    # (kể cả chunk 1) đều nghe nhất quán và tự nhiên như nhau
+                    gen_kwargs["voice_clone_prompt"] = design_voice_clone_prompt
+                elif clean_inst:
+                    # Fallback nếu warmup thất bại: chunk 1 vẫn dùng instruct
+                    gen_kwargs["instruct"] = clean_inst
+
+            audio_list = model.generate(**gen_kwargs)
+            if audio_list and len(audio_list) > 0:
+                audio_np = np.array(audio_list[0], dtype=np.float32)
+                if audio_np.ndim > 1:
+                    audio_np = audio_np.squeeze()
+
+                # Gọt sạch khoảng lặng thực sự ranh giới (dùng top_db=45 để không xén mất âm cuối nhỏ nhẹ)
+                try:
+                    trimmed_np, _ = librosa.effects.trim(audio_np, top_db=45)
+                    if len(trimmed_np) > SAMPLE_RATE * 0.2:
+                        audio_np = trimmed_np
+                except Exception:
+                    pass
+
+                all_audios.append(audio_np)
+
+            if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                
+
     finally:
-        # Ultimate garbage collection
         gc.collect()
-        if device_type == "cuda":
+        if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    if not all_audio:
-        raise ValueError("Không có âm thanh nào được tạo ra.")
+    if not all_audios:
+        raise ValueError("Không có âm thanh nào được tạo ra từ mô hình.")
 
-    import librosa
-    actual_sr = model.tts_model.sample_rate
-    
-    # Khoảng lặng giữa các câu là 0.25 giây
-    silence_samples = int(actual_sr * 0.25)
+    # Ghép các đoạn audio lại với khoảng lặng 0.22s giữa các câu
+    silence_samples = int(SAMPLE_RATE * 0.22)
     silence_array = np.zeros(silence_samples, dtype=np.float32)
 
-    final_audio = []
-    for i, a in enumerate(all_audio):
-        # 1. Cắt bỏ khoảng lặng thừa (nhiễu/rỗng) ở hai đầu do mô hình tự sinh ra
-        a_trimmed, _ = librosa.effects.trim(a, top_db=35)
-        
-        # 2. Tạo hiệu ứng mờ dần (fade in/out) cực ngắn 20ms để tránh tiếng click/nổ (popping)
-        fade_len = int(actual_sr * 0.02)
-        if len(a_trimmed) > fade_len * 2:
+    final_pieces: list[np.ndarray] = []
+    for i, a in enumerate(all_audios):
+        # Mờ dần 10ms ở đầu và đuôi câu để khử tiếng click nổ
+        fade_len = int(SAMPLE_RATE * 0.01)
+        if len(a) > fade_len * 2:
             fade_in = np.linspace(0, 1, fade_len, dtype=np.float32)
             fade_out = np.linspace(1, 0, fade_len, dtype=np.float32)
-            a_trimmed[:fade_len] *= fade_in
-            a_trimmed[-fade_len:] *= fade_out
+            a[:fade_len] *= fade_in
+            a[-fade_len:] *= fade_out
 
-        final_audio.append(a_trimmed)
-        if i < len(all_audio) - 1:
-            final_audio.append(silence_array)
+        final_pieces.append(a)
+        if i < len(all_audios) - 1:
+            final_pieces.append(silence_array)
 
-    audio = np.concatenate(final_audio)
+    audio = np.concatenate(final_pieces)
+
+    # Xử lý hiệu ứng DSP: Cao độ (Pitch) nếu người dùng có yêu cầu
+    # Lưu ý: Tốc độ (Speed) đã được OmniVoice xử lý tự nhiên trực tiếp trong diffusion tokens,
+    # không dùng librosa.effects.time_stretch để tránh méo pha (phase distortion/metallic reverb).
+    if pitch != 0.0:
+        import librosa
+        audio = librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=pitch)
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Lấy sample rate thực tế từ model (16000 Hz)
-    actual_sr = model.tts_model.sample_rate
-
-    # Audio DSP: Điều chỉnh Speed và Pitch trực tiếp trên NumPy array
-    if speed != 1.0 or pitch != 0.0:
-        import librosa
-        if speed != 1.0:
-            audio = librosa.effects.time_stretch(audio, rate=speed)
-        if pitch != 0.0:
-            audio = librosa.effects.pitch_shift(audio, sr=actual_sr, n_steps=pitch)
-
-    # Ghi file
+    # Lưu file
     if audio_format == "mp3":
         import torchaudio
-        # torchaudio.save expects tensor of shape [channels, frames]
+
         tensor_audio = torch.from_numpy(audio).unsqueeze(0)
-        torchaudio.save(str(output_path), tensor_audio, actual_sr, format="mp3")
+        torchaudio.save(str(output_path), tensor_audio, SAMPLE_RATE, format="mp3")
     else:
-        # Ghi WAV — khớp 100% với cách CLI chính thức của voxcpm:
-        sf.write(str(output_path), audio, actual_sr)
-        
-    logger.info(f"Saved: {output_path.name} | {len(audio)/actual_sr:.2f}s | sr={actual_sr} | format={audio_format}")
+        sf.write(str(output_path), audio, SAMPLE_RATE)
+
+    logger.info(
+        f"💾 Đã lưu: {output_path.name} | {len(audio) / SAMPLE_RATE:.2f}s | {SAMPLE_RATE}Hz | Format: {audio_format}"
+    )

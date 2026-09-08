@@ -1,0 +1,183 @@
+﻿Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$cSource = @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32Tray {
+    [DllImport("user32.dll")]
+    public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+}
+"@
+
+Add-Type -TypeDefinition $cSource -ErrorAction SilentlyContinue
+
+$projectDir = (Get-Item $PSScriptRoot).Parent.FullName
+$iconPath = Join-Path $projectDir "assets\app.ico"
+
+# 1. Tìm Handle của cửa sổ Terminal
+function Get-TerminalHWnd {
+    $proc = Get-Process | Where-Object { $_.MainWindowTitle -like '*OmniVoice Launcher*' } | Select-Object -First 1
+    if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {
+        return $proc.MainWindowHandle
+    }
+    
+    $h = [Win32Tray]::FindWindow($null, "OmniVoice Launcher (TTS 24kHz)")
+    if ($h -ne [IntPtr]::Zero) {
+        $root = [Win32Tray]::GetAncestor($h, 2)
+        if ($root -ne [IntPtr]::Zero) { return $root }
+        return $h
+    }
+
+    $wtProcs = Get-Process -Name "WindowsTerminal" -ErrorAction SilentlyContinue
+    foreach ($wt in $wtProcs) {
+        if ($wt.MainWindowHandle -ne [IntPtr]::Zero) {
+            return $wt.MainWindowHandle
+        }
+    }
+
+    $c = [Win32Tray]::GetConsoleWindow()
+    if ($c -ne [IntPtr]::Zero) {
+        $root = [Win32Tray]::GetAncestor($c, 2)
+        if ($root -ne [IntPtr]::Zero) { return $root }
+        return $c
+    }
+
+    return [IntPtr]::Zero
+}
+
+# 2. Khởi tạo System Tray Icon
+$notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+if (Test-Path $iconPath) {
+    $notifyIcon.Icon = New-Object System.Drawing.Icon($iconPath)
+} else {
+    $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+}
+
+$notifyIcon.Text = "OmniVoice TTS (Đang khởi động...)"
+$notifyIcon.Visible = $true
+
+# Biến trạng thái ẩn/hiện
+$script:isWindowHidden = $false
+$script:firstHideNotificationShown = $false
+$script:targetHWnd = [IntPtr]::Zero
+
+function Restore-TerminalWindow {
+    if ($script:targetHWnd -eq [IntPtr]::Zero) {
+        $script:targetHWnd = Get-TerminalHWnd
+    }
+    if ($script:targetHWnd -ne [IntPtr]::Zero) {
+        [Win32Tray]::ShowWindow($script:targetHWnd, 9) # 9 = SW_RESTORE
+        [Win32Tray]::SetForegroundWindow($script:targetHWnd) | Out-Null
+        $script:isWindowHidden = $false
+    }
+}
+
+function Hide-TerminalWindow {
+    if ($script:targetHWnd -eq [IntPtr]::Zero) {
+        $script:targetHWnd = Get-TerminalHWnd
+    }
+    if ($script:targetHWnd -ne [IntPtr]::Zero) {
+        [Win32Tray]::ShowWindow($script:targetHWnd, 0) # 0 = SW_HIDE
+        $script:isWindowHidden = $true
+
+        if (-not $script:firstHideNotificationShown) {
+            $notifyIcon.BalloonTipTitle = "OmniVoice TTS"
+            $notifyIcon.BalloonTipText = "Ứng dụng đang chạy ngầm. Click đúp vào biểu tượng để mở lại Terminal."
+            $notifyIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+            $notifyIcon.ShowBalloonTip(3000)
+            $script:firstHideNotificationShown = $true
+        }
+    }
+}
+
+$notifyIcon.add_DoubleClick({
+    if ($script:isWindowHidden) {
+        Restore-TerminalWindow
+    } else {
+        Hide-TerminalWindow
+    }
+})
+
+# 3. Context Menu khi chuột phải vào Tray Icon
+$contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+# Cài đặt font chuẩn hỗ trợ Tiếng Việt
+$contextMenu.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+
+$menuOpenWeb = $contextMenu.Items.Add("Mở Giao diện Web (Localhost:5173)")
+$menuOpenWeb.add_Click({
+    Start-Process "http://localhost:5173"
+})
+
+$menuToggle = $contextMenu.Items.Add("Hiện / Ẩn Terminal")
+$menuToggle.add_Click({
+    if ($script:isWindowHidden) {
+        Restore-TerminalWindow
+    } else {
+        Hide-TerminalWindow
+    }
+})
+
+$contextMenu.Items.Add("-") | Out-Null
+
+$menuExit = $contextMenu.Items.Add("Thoát hoàn toàn OmniVoice")
+$menuExit.add_Click({
+    $notifyIcon.Visible = $false
+    $notifyIcon.Dispose()
+    Get-Process | Where-Object { $_.MainWindowTitle -like '*OmniVoice*' -or $_.ProcessName -eq 'uvicorn' } | Stop-Process -Force -ErrorAction SilentlyContinue
+    [System.Windows.Forms.Application]::Exit()
+    Stop-Process -Id $PID -Force
+})
+
+$notifyIcon.ContextMenuStrip = $contextMenu
+
+# 4. Timer kiểm tra trạng thái
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 350
+
+$script:browserOpened = $false
+
+$timer.add_Tick({
+    if (-not $script:browserOpened) {
+        try {
+            $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 1 -ErrorAction Stop
+            if ($r.status -eq 'ok' -and $r.model_loaded -eq $true) {
+                Write-Host "AI Model da san sang! Dang mo trinh duyet..." -ForegroundColor Green
+                Start-Process "http://localhost:5173"
+                $notifyIcon.Text = "OmniVoice TTS (Đang hoạt động)"
+                $script:browserOpened = $true
+            }
+        } catch {}
+    }
+
+    if ($script:targetHWnd -eq [IntPtr]::Zero) {
+        $script:targetHWnd = Get-TerminalHWnd
+    }
+
+    if ($script:targetHWnd -ne [IntPtr]::Zero -and -not $script:isWindowHidden) {
+        if ([Win32Tray]::IsIconic($script:targetHWnd)) {
+            Hide-TerminalWindow
+        }
+    }
+})
+
+$timer.Start()
+
+Write-Host "Tray Manager da khoi dong. Khi thu nho Terminal se tu dong an xuong khay he thong!" -ForegroundColor Cyan
+
+try {
+    [System.Windows.Forms.Application]::Run()
+} finally {
+    $notifyIcon.Visible = $false
+    $notifyIcon.Dispose()
+}

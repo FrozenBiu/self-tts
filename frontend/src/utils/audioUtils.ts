@@ -1,9 +1,9 @@
 export const convertToWav = async (file: Blob | File): Promise<Blob> => {
   const arrayBuffer = await file.arrayBuffer();
-  // Khởi tạo AudioContext với sampleRate 16000 (chuẩn của mô hình)
+  // Khởi tạo AudioContext với sampleRate 24000 (chuẩn của OmniVoice)
   const audioContext = new (
     window.AudioContext || (window as any).webkitAudioContext
-  )({ sampleRate: 16000 });
+  )({ sampleRate: 24000 });
   const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
   return audioBufferToWav(audioBuffer);

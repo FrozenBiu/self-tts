@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { useTTSStore } from "../store/useTTSStore";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -23,8 +23,8 @@ export default function Projects() {
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 md:gap-8 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between px-2">
+    <div className="w-full max-w-7xl 2k:max-w-[1720px] mx-auto flex flex-col gap-6 md:gap-8 2k:gap-10 animate-in fade-in duration-500">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <span className="material-symbols-outlined text-primary text-3xl">
             workspaces

@@ -168,7 +168,7 @@ export default function Library() {
 
   // Phân trang
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const itemsPerPage = 5;
 
   const totalPages = Math.ceil(history.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -180,7 +180,7 @@ export default function Library() {
   }
 
   return (
-    <div className="glass-card rounded-xl w-full max-w-4xl p-6 md:p-8 flex flex-col gap-8 shadow-2xl">
+    <div className="glass-card rounded-xl w-full max-w-4xl 2k:max-w-6xl p-6 md:p-8 2k:p-10 flex flex-col gap-8 shadow-2xl">
       {/* Card Header */}
       <div className="flex items-center justify-between border-b border-white/5 pb-4">
         <div className="flex items-center gap-3">

@@ -1,12 +1,13 @@
 import { useTTSStore } from "../store/useTTSStore";
 import { toast } from "sonner";
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 
 export default function Studio() {
   const {
     text,
+    mode,
+    instruct,
     cfg_value,
-    inference_timesteps,
     seed,
     speed,
     pitch,
@@ -15,9 +16,9 @@ export default function Studio() {
     voices,
     selectedVoiceId,
     setText,
+    setMode,
+    setInstruct,
     setCfgValue,
-    setTimesteps,
-    setSeed,
     setSpeed,
     setPitch,
     setIsLoading,
@@ -34,6 +35,101 @@ export default function Studio() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Lưu cấu hình mô hình vào localStorage ─────────────────────────────────
+  const [configSaved, setConfigSaved] = useState(false);
+
+  const saveModelConfig = useCallback(() => {
+    const config = {
+      cfg_value,
+      speed,
+      pitch,
+      audioFormat: useTTSStore.getState().audioFormat,
+    };
+    localStorage.setItem("tts_model_config", JSON.stringify(config));
+    setConfigSaved(true);
+    toast.success(
+      `Đã lưu cấu hình: CFG ${cfg_value.toFixed(1)} · Speed ${speed.toFixed(2)}x · Pitch ${pitch >= 0 ? "+" : ""}${pitch.toFixed(1)}`,
+      { duration: 3000 },
+    );
+    setTimeout(() => setConfigSaved(false), 2000);
+  }, [cfg_value, speed, pitch]);
+
+  const NON_VERBAL_SYMBOLS = [
+    { tag: "[laughter]", label: "Cười", emoji: "😄" },
+    { tag: "[sigh]", label: "Thở dài", emoji: "😮‍💨" },
+    { tag: "[surprise-ah]", label: "Ngạc nhiên (Ah)", emoji: "😲" },
+    { tag: "[surprise-oh]", label: "Bất ngờ (Oh)", emoji: "😯" },
+    { tag: "[dissatisfaction-hnn]", label: "Khó chịu", emoji: "😤" },
+    { tag: "[question-ah]", label: "Nghi vấn (Ah)", emoji: "❓" },
+  ];
+
+  const DESIGN_PRESETS = [
+    {
+      label: "Nữ thanh niên trong trẻo",
+      gender: "female" as const,
+      age: "young adult" as const,
+      pitch: "high pitch" as const,
+      style: "normal" as const,
+    },
+    {
+      label: "Nam trung niên trầm ấm",
+      gender: "male" as const,
+      age: "middle-aged" as const,
+      pitch: "low pitch" as const,
+      style: "normal" as const,
+    },
+    {
+      label: "Nam thanh niên truyền cảm",
+      gender: "male" as const,
+      age: "young adult" as const,
+      pitch: "moderate pitch" as const,
+      style: "normal" as const,
+    },
+    {
+      label: "Nữ thì thầm bí ẩn",
+      gender: "female" as const,
+      age: "young adult" as const,
+      pitch: "moderate pitch" as const,
+      style: "whisper" as const,
+    },
+    {
+      label: "Bé gái đáng yêu",
+      gender: "female" as const,
+      age: "child" as const,
+      pitch: "high pitch" as const,
+      style: "normal" as const,
+    },
+    {
+      label: "Cụ già chậm rãi",
+      gender: "male" as const,
+      age: "elderly" as const,
+      pitch: "low pitch" as const,
+      style: "normal" as const,
+    },
+  ];
+
+  const handleInsertSymbol = (symbol: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setText((text ? text + " " : "") + symbol);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = text.substring(0, start);
+    const after = text.substring(end);
+    const spacerBefore = before.length > 0 && !before.endsWith(" ") ? " " : "";
+    const spacerAfter = after.length > 0 && !after.startsWith(" ") ? " " : " ";
+    const newText = before + spacerBefore + symbol + spacerAfter + after;
+    setText(newText);
+    setTimeout(() => {
+      textarea.focus();
+      const newPos = start + spacerBefore.length + symbol.length + spacerAfter.length;
+      textarea.setSelectionRange(newPos, newPos);
+    }, 0);
+  };
 
   const carouselRef = useRef<HTMLDivElement>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -49,6 +145,38 @@ export default function Studio() {
 
   // Lưu trữ vị trí scroll ban đầu khi bắt đầu kéo
   const [startScrollLeft, setStartScrollLeft] = useState(0);
+
+  // Thuộc tính thiết kế giọng nói (Voice Design Dropdowns)
+  const [designGender, setDesignGender] = useState<"female" | "male">("female");
+  const [designAge, setDesignAge] = useState<
+    "child" | "teenager" | "young adult" | "middle-aged" | "elderly"
+  >("young adult");
+  const [designPitch, setDesignPitch] = useState<
+    "very low pitch" | "low pitch" | "moderate pitch" | "high pitch" | "very high pitch"
+  >("moderate pitch");
+  const [designStyle, setDesignStyle] = useState<"normal" | "whisper">("normal");
+
+  const updateDesignInstruct = (
+    g: "female" | "male",
+    a: "child" | "teenager" | "young adult" | "middle-aged" | "elderly",
+    p: "very low pitch" | "low pitch" | "moderate pitch" | "high pitch" | "very high pitch",
+    s: "normal" | "whisper",
+  ) => {
+    const parts: string[] = [g, a, p];
+    if (s === "whisper") {
+      parts.push("whisper");
+    }
+    const newInstruct = parts.join(", ");
+    setInstruct(newInstruct);
+  };
+
+  const handleSelectDesignPreset = (preset: (typeof DESIGN_PRESETS)[0]) => {
+    setDesignGender(preset.gender);
+    setDesignAge(preset.age);
+    setDesignPitch(preset.pitch);
+    setDesignStyle(preset.style);
+    updateDesignInstruct(preset.gender, preset.age, preset.pitch, preset.style);
+  };
 
   useEffect(() => {
     fetchVoices();
@@ -161,10 +289,11 @@ export default function Studio() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
+          mode,
+          instruct: mode === "design" ? instruct : null,
           cfg_value,
-          inference_timesteps,
-          normalize: true,
-          voice_id: selectedVoiceId,
+          normalize: false,
+          voice_id: mode === "clone" ? selectedVoiceId : null,
           seed,
           speed,
           pitch,
@@ -180,18 +309,22 @@ export default function Studio() {
       const data = await response.json();
 
       // Hoàn thành tiến trình
-
       setAudioUrl(data.audio_url);
 
       addHistory({
         text,
         url: data.audio_url,
         projectId: selectedProjectId || undefined,
-        voiceId: selectedVoiceId,
+        voiceId: mode === "clone" ? selectedVoiceId : null,
         voiceName:
-          voices.find((v) => v.id === selectedVoiceId)?.name || "Mặc định",
+          mode === "clone"
+            ? (voices.find((v) => v.id === selectedVoiceId)?.name || "Mặc định")
+            : mode === "design"
+            ? `Design: ${instruct.slice(0, 20) || "Tùy chỉnh"}`
+            : "Tự động (Auto)",
+        mode,
+        instruct,
         cfg_value,
-        inference_timesteps,
         seed,
         speed,
         pitch,
@@ -214,131 +347,178 @@ export default function Studio() {
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 md:gap-8 animate-in fade-in duration-500">
+    <div className="w-full max-w-7xl 2k:max-w-[1720px] mx-auto flex flex-col gap-6 md:gap-8 2k:gap-10 animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex items-center gap-4 px-2">
-        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
-          <span className="material-symbols-outlined text-primary text-2xl">
+      <div className="flex items-center gap-4 2k:gap-5 px-2">
+        <div className="w-12 h-12 2k:w-16 2k:h-16 rounded-xl 2k:rounded-2xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
+          <span className="material-symbols-outlined text-primary text-2xl 2k:text-3xl">
             graphic_eq
           </span>
         </div>
         <div>
-          <h1 className="font-display text-headline-sm md:text-headline-md text-on-surface tracking-tight">
-            Tổng hợp giọng nói
+          <h1 className="font-display text-headline-sm md:text-headline-md 2k:text-3xl 2k:font-bold text-on-surface tracking-tight">
+            OmniVoice Studio
           </h1>
-          <p className="text-on-surface-variant text-sm mt-0.5">
-            Sử dụng mô hình VoxCPM2 để tạo giọng nói AI chân thực
+          <p className="text-on-surface-variant text-sm 2k:text-base mt-0.5">
+            Tổng hợp giọng nói AI chất lượng cao 24kHz với mô hình OmniVoice (k2-fsa)
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 2k:gap-10 items-start">
         {/* Left Column: Main Content */}
-        <div className="lg:col-span-8 flex flex-col gap-6">
-          <div className="glass-card rounded-2xl p-6 md:p-8 flex flex-col gap-8 shadow-2xl border border-white/5 relative overflow-hidden">
+        <div className="lg:col-span-8 flex flex-col gap-6 2k:gap-8">
+          <div className="glass-card rounded-2xl p-6 md:p-8 2k:p-10 flex flex-col gap-6 2k:gap-8 shadow-2xl border border-white/5 relative overflow-hidden">
             {/* Background decorative gradient */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[100px] pointer-events-none mix-blend-screen"></div>
 
-            {/* Voice Selection Area */}
-            <div className="flex flex-col gap-4 relative group/carousel z-10 h-full">
-              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center gap-4">
-                    <label className="font-label-caps text-label-caps text-on-surface-variant flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[18px]">
-                        record_voice_over
-                      </span>
-                      Mẫu giọng đọc
-                    </label>
-                    <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-1 shadow-inner h-8">
+            {/* Mode Switcher Tabs */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-5 2k:pb-6 z-10">
+              <div>
+                <label className="font-label-caps text-xs 2k:text-sm text-on-surface-variant flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[18px] 2k:text-[20px] text-primary">
+                    tune
+                  </span>
+                  Chế độ sinh giọng
+                </label>
+                <p className="text-xs 2k:text-sm text-on-surface-variant/60 mt-0.5">
+                  Chọn giữa sao chép giọng mẫu hoặc tự thiết kế thuộc tính giọng nói
+                </p>
+              </div>
+
+              <div className="inline-flex bg-surface-dim border border-white/10 rounded-xl p-1 2k:p-1.5 shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => setMode("clone")}
+                  className={`px-3.5 2k:px-5 py-1.5 2k:py-2.5 rounded-lg font-label-caps text-xs 2k:text-sm flex items-center gap-1.5 2k:gap-2 transition-all duration-300 ${
+                    mode === "clone"
+                      ? "bg-primary text-black font-semibold shadow-md"
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px] 2k:text-[18px]">record_voice_over</span>
+                  Voice Cloning
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("design");
+                    if (!instruct || instruct.includes("gentle")) {
+                      updateDesignInstruct(designGender, designAge, designPitch, designStyle);
+                    }
+                  }}
+                  className={`px-3.5 2k:px-5 py-1.5 2k:py-2.5 rounded-lg font-label-caps text-xs 2k:text-sm flex items-center gap-1.5 2k:gap-2 transition-all duration-300 ${
+                    mode === "design"
+                      ? "bg-primary text-black font-semibold shadow-md"
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px] 2k:text-[18px]">auto_fix_high</span>
+                  Voice Design
+                </button>
+              </div>
+            </div>
+
+            {/* Mode 1: Voice Cloning Carousel */}
+            {mode === "clone" && (
+              <div className="flex flex-col gap-4 relative group/carousel z-10 h-full animate-in fade-in duration-300">
+                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-4">
+                      <label className="font-label-caps text-label-caps 2k:text-sm text-on-surface-variant flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[18px] 2k:text-[20px]">
+                          record_voice_over
+                        </span>
+                        Mẫu giọng đọc
+                      </label>
+                      <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-1 shadow-inner h-8 2k:h-9">
+                        <button
+                          className={`px-3 2k:px-4 py-1 rounded font-label-caps text-[10px] 2k:text-xs transition-all duration-300 ${voiceType === "all" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
+                          onClick={() => setVoiceType("all")}
+                        >
+                          TẤT CẢ
+                        </button>
+                        <button
+                          className={`px-3 2k:px-4 py-1 rounded font-label-caps text-[10px] 2k:text-xs transition-all duration-300 ${voiceType === "preset" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
+                          onClick={() => setVoiceType("preset")}
+                        >
+                          HỆ THỐNG
+                        </button>
+                        <button
+                          className={`px-3 2k:px-4 py-1 rounded font-label-caps text-[10px] 2k:text-xs transition-all duration-300 ${voiceType === "custom" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
+                          onClick={() => setVoiceType("custom")}
+                        >
+                          CÁ NHÂN
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-1 w-fit shadow-inner">
                       <button
-                        className={`px-3 py-1 rounded font-label-caps text-[10px] transition-all duration-300 ${voiceType === "all" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
-                        onClick={() => setVoiceType("all")}
+                        className={`px-4 2k:px-5 py-1.5 2k:py-2 rounded-md font-label-caps text-xs 2k:text-sm transition-all duration-300 ${!gender || gender === "all" ? "bg-[#FFB74D] text-black shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                        onClick={() => setGender("all")}
                       >
-                        TẤT CẢ
+                        Tất cả
                       </button>
                       <button
-                        className={`px-3 py-1 rounded font-label-caps text-[10px] transition-all duration-300 ${voiceType === "preset" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
-                        onClick={() => setVoiceType("preset")}
+                        className={`px-4 2k:px-5 py-1.5 2k:py-2 rounded-md font-label-caps text-xs 2k:text-sm transition-all duration-300 ${gender === "male" ? "bg-[#FFB74D] text-black shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                        onClick={() => setGender("male")}
                       >
-                        HỆ THỐNG
+                        Nam
                       </button>
                       <button
-                        className={`px-3 py-1 rounded font-label-caps text-[10px] transition-all duration-300 ${voiceType === "custom" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
-                        onClick={() => setVoiceType("custom")}
+                        className={`px-4 2k:px-5 py-1.5 2k:py-2 rounded-md font-label-caps text-xs 2k:text-sm transition-all duration-300 ${gender === "female" ? "bg-[#FFB74D] text-black shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                        onClick={() => setGender("female")}
                       >
-                        CÁ NHÂN
+                        Nữ
                       </button>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-1 w-fit shadow-inner">
-                    <button
-                      className={`px-4 py-1.5 rounded-md font-label-caps text-xs transition-all duration-300 ${!gender || gender === "all" ? "bg-[#FFB74D] text-black shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
-                      onClick={() => setGender("all")}
-                    >
-                      Tất cả
-                    </button>
-                    <button
-                      className={`px-4 py-1.5 rounded-md font-label-caps text-xs transition-all duration-300 ${gender === "male" ? "bg-[#FFB74D] text-black shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
-                      onClick={() => setGender("male")}
-                    >
-                      Nam
-                    </button>
-                    <button
-                      className={`px-4 py-1.5 rounded-md font-label-caps text-xs transition-all duration-300 ${gender === "female" ? "bg-[#FFB74D] text-black shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
-                      onClick={() => setGender("female")}
-                    >
-                      Nữ
-                    </button>
-                  </div>
+                {/* Carousel navigation arrows */}
+                <div className="absolute left-0 top-[60%] -translate-y-1/2 z-20 hidden md:flex items-center -ml-4 2k:-ml-5">
+                  <button
+                    onClick={handleScrollLeftArrow}
+                    className="w-8 h-8 2k:w-10 2k:h-10 rounded-full bg-surface-variant/90 backdrop-blur text-on-surface flex items-center justify-center hover:bg-primary hover:text-on-primary transition-all shadow-lg border border-white/20 hover:scale-110"
+                  >
+                    <span className="material-symbols-outlined text-[20px] 2k:text-[24px]">
+                      chevron_left
+                    </span>
+                  </button>
                 </div>
-              </div>
+                <div className="absolute right-0 top-[60%] -translate-y-1/2 z-20 hidden md:flex items-center -mr-4 2k:-mr-5">
+                  <button
+                    onClick={handleScrollRightArrow}
+                    className="w-8 h-8 2k:w-10 2k:h-10 rounded-full bg-surface-variant/90 backdrop-blur text-on-surface flex items-center justify-center hover:bg-primary hover:text-on-primary transition-all shadow-lg border border-white/20 hover:scale-110"
+                  >
+                    <span className="material-symbols-outlined text-[20px] 2k:text-[24px]">
+                      chevron_right
+                    </span>
+                  </button>
+                </div>
 
-              {/* Carousel navigation arrows */}
-              <div className="absolute left-0 top-[60%] -translate-y-1/2 z-20 hidden md:flex items-center -ml-4">
-                <button
-                  onClick={handleScrollLeftArrow}
-                  className="w-8 h-8 rounded-full bg-surface-variant/90 backdrop-blur text-on-surface flex items-center justify-center hover:bg-primary hover:text-on-primary transition-all shadow-lg border border-white/20 hover:scale-110"
+                <div
+                  ref={carouselRef}
+                  className={`flex gap-4 2k:gap-5 overflow-x-auto py-2 px-1 hide-scrollbar cursor-grab ${isDown ? "active:cursor-grabbing snap-none" : "snap-x snap-proximity"} scroll-smooth -mx-1`}
+                  onMouseDown={handleMouseDown}
+                  onMouseLeave={handleMouseLeave}
+                  onMouseUp={handleMouseUp}
+                  onMouseMove={handleMouseMove}
                 >
-                  <span className="material-symbols-outlined text-[20px]">
-                    chevron_left
-                  </span>
-                </button>
-              </div>
-              <div className="absolute right-0 top-[60%] -translate-y-1/2 z-20 hidden md:flex items-center -mr-4">
-                <button
-                  onClick={handleScrollRightArrow}
-                  className="w-8 h-8 rounded-full bg-surface-variant/90 backdrop-blur text-on-surface flex items-center justify-center hover:bg-primary hover:text-on-primary transition-all shadow-lg border border-white/20 hover:scale-110"
-                >
-                  <span className="material-symbols-outlined text-[20px]">
-                    chevron_right
-                  </span>
-                </button>
-              </div>
-
-              <div
-                ref={carouselRef}
-                className={`flex gap-4 overflow-x-auto py-2 px-1 hide-scrollbar cursor-grab ${isDown ? "active:cursor-grabbing snap-none" : "snap-x snap-proximity"} scroll-smooth -mx-1`}
-                onMouseDown={handleMouseDown}
-                onMouseLeave={handleMouseLeave}
-                onMouseUp={handleMouseUp}
-                onMouseMove={handleMouseMove}
-              >
-                {filteredVoices.length === 0 ? (
-                  <div className="w-full h-40 flex items-center justify-center bg-surface-dim/50 rounded-xl border border-white/5">
-                    <p className="text-on-surface-variant text-sm font-label-caps">
-                      Không tìm thấy giọng đọc nào
-                    </p>
-                  </div>
-                ) : (
-                  filteredVoices.map((voice, index) => (
-                    <>
+                  {filteredVoices.length === 0 ? (
+                    <div className="w-full h-40 2k:h-48 flex items-center justify-center bg-surface-dim/50 rounded-xl border border-white/5">
+                      <p className="text-on-surface-variant text-sm 2k:text-base font-label-caps">
+                        Không tìm thấy giọng đọc nào
+                      </p>
+                    </div>
+                  ) : (
+                    filteredVoices.map((voice, index) => (
                       <div
                         key={index}
-                        className="snap-start shrink-0 w-36 h-40 relative group"
+                        className="snap-start shrink-0 w-36 2k:w-44 h-40 2k:h-48 relative group"
                       >
                         <div className="absolute top-2 left-2 opacity-100 z-10">
                           <button
@@ -346,7 +526,7 @@ export default function Studio() {
                               e.stopPropagation();
                               togglePin(voice.id);
                             }}
-                            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${pinnedVoices?.includes(voice.id) ? "text-primary bg-primary/10 shadow-[0_0_10px_rgba(245,158,11,0.2)]" : "text-primary/40 hover:text-primary/80 opacity-0 group-hover:opacity-100"}`}
+                            className={`w-7 h-7 2k:w-8 2k:h-8 rounded-full flex items-center justify-center transition-all ${pinnedVoices?.includes(voice.id) ? "text-primary bg-primary/10 shadow-[0_0_10px_rgba(245,158,11,0.2)]" : "text-primary/40 hover:text-primary/80 opacity-0 group-hover:opacity-100"}`}
                             title={
                               pinnedVoices?.includes(voice.id)
                                 ? "Bỏ ghim"
@@ -354,7 +534,7 @@ export default function Studio() {
                             }
                           >
                             <span
-                              className="material-symbols-outlined text-[16px]"
+                              className="material-symbols-outlined text-[16px] 2k:text-[18px]"
                               style={{
                                 fontVariationSettings: pinnedVoices?.includes(
                                   voice.id,
@@ -370,7 +550,7 @@ export default function Studio() {
                         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                           <button
                             onClick={(e) => handlePlayPreview(voice.url, e)}
-                            className="w-7 h-7 rounded-full bg-primary/20 backdrop-blur text-primary flex items-center justify-center hover:bg-primary hover:text-on-primary transition-colors shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                            className="w-7 h-7 2k:w-8 2k:h-8 rounded-full bg-primary/20 backdrop-blur text-primary flex items-center justify-center hover:bg-primary hover:text-on-primary transition-colors shadow-[0_0_10px_rgba(245,158,11,0.2)]"
                             title={
                               playingPreviewUrl === voice.url
                                 ? "Dừng phát"
@@ -378,7 +558,7 @@ export default function Studio() {
                             }
                           >
                             <span
-                              className="material-symbols-outlined text-[16px]"
+                              className="material-symbols-outlined text-[16px] 2k:text-[18px]"
                               style={{ fontVariationSettings: "'FILL' 1" }}
                             >
                               {playingPreviewUrl === voice.url
@@ -389,58 +569,213 @@ export default function Studio() {
                         </div>
                         <button
                           onClick={() => setSelectedVoiceId(voice.id)}
-                          className={`w-full h-full flex flex-col items-center justify-center gap-2 p-3 rounded-xl bg-white/5 backdrop-blur-md transition-all duration-300 relative top-[1px] border ${selectedVoiceId === voice.id ? "border-primary ring-1 ring-primary shadow-[0_0_15px_rgba(245,158,11,0.2)] bg-primary/10" : "border-white/10 hover:border-primary/50 hover:bg-white/10"}`}
+                          className={`w-full h-full flex flex-col items-center justify-center gap-2 p-3 2k:p-4 rounded-xl bg-white/5 backdrop-blur-md transition-all duration-300 relative top-[1px] border ${selectedVoiceId === voice.id ? "border-primary ring-1 ring-primary shadow-[0_0_15px_rgba(245,158,11,0.2)] bg-primary/10" : "border-white/10 hover:border-primary/50 hover:bg-white/10"}`}
                         >
                           <span
-                            className={`material-symbols-outlined text-3xl ${selectedVoiceId === voice.id ? "text-primary" : "text-on-surface-variant group-hover:text-primary"}`}
+                            className={`material-symbols-outlined text-3xl 2k:text-4xl ${selectedVoiceId === voice.id ? "text-primary" : "text-on-surface-variant group-hover:text-primary"}`}
                           >
                             {voice.icon}
                           </span>
                           <div className="text-center mt-1 w-full">
-                            <p className="font-label-caps text-sm text-on-surface truncate px-1">
+                            <p className="font-label-caps text-sm 2k:text-base text-on-surface truncate px-1">
                               {voice.name}
                             </p>
-                            <p className="text-xs text-on-surface-variant mt-1 line-clamp-2 px-1">
+                            <p className="text-xs 2k:text-sm text-on-surface-variant mt-1 line-clamp-2 px-1">
                               {voice.description}
                             </p>
                           </div>
                         </button>
                       </div>
-                    </>
-                  ))
-                )}
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Mode 2: Voice Design (Dropdown Selectors) */}
+            {mode === "design" && (
+              <div className="flex flex-col gap-4 p-5 2k:p-6 rounded-xl bg-surface-dim/70 border border-white/10 z-10 animate-in fade-in duration-300">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-3">
+                  <label className="font-label-caps text-xs 2k:text-sm text-primary flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[18px]">tune</span>
+                    Thiết kế thuộc tính giọng nói (Voice Attributes)
+                  </label>
+                  <span className="text-[11px] 2k:text-xs text-on-surface-variant font-mono-data">
+                    OmniVoice Standard Tags
+                  </span>
+                </div>
+
+                {/* 4 Dropdowns Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 2k:gap-4">
+                  {/* Dropdown 1: Giới tính */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-label-caps text-[11px] 2k:text-xs text-on-surface-variant flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[15px] text-primary">wc</span>
+                      Giới tính (Gender)
+                    </label>
+                    <select
+                      value={designGender}
+                      onChange={(e) => {
+                        const val = e.target.value as "female" | "male";
+                        setDesignGender(val);
+                        updateDesignInstruct(val, designAge, designPitch, designStyle);
+                      }}
+                      className="bg-surface-variant/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all cursor-pointer font-body-md"
+                    >
+                      <option value="female">Nữ (Female)</option>
+                      <option value="male">Nam (Male)</option>
+                    </select>
+                  </div>
+
+                  {/* Dropdown 2: Độ tuổi */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-label-caps text-[11px] 2k:text-xs text-on-surface-variant flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[15px] text-primary">cake</span>
+                      Độ tuổi (Age)
+                    </label>
+                    <select
+                      value={designAge}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setDesignAge(val);
+                        updateDesignInstruct(designGender, val, designPitch, designStyle);
+                      }}
+                      className="bg-surface-variant/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all cursor-pointer font-body-md"
+                    >
+                      <option value="young adult">Thanh niên (18-35 tuổi)</option>
+                      <option value="middle-aged">Trung niên (35-60 tuổi)</option>
+                      <option value="teenager">Thiếu niên (13-18 tuổi)</option>
+                      <option value="child">Trẻ em (Dưới 12 tuổi)</option>
+                      <option value="elderly">Người cao tuổi (&gt; 60 tuổi)</option>
+                    </select>
+                  </div>
+
+                  {/* Dropdown 3: Tông giọng */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-label-caps text-[11px] 2k:text-xs text-on-surface-variant flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[15px] text-primary">graphic_eq</span>
+                      Tông giọng (Pitch)
+                    </label>
+                    <select
+                      value={designPitch}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setDesignPitch(val);
+                        updateDesignInstruct(designGender, designAge, val, designStyle);
+                      }}
+                      className="bg-surface-variant/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all cursor-pointer font-body-md"
+                    >
+                      <option value="moderate pitch">Vừa phải / Tự nhiên</option>
+                      <option value="low pitch">Trầm ấm</option>
+                      <option value="very low pitch">Rất trầm</option>
+                      <option value="high pitch">Cao / Trong trẻo</option>
+                      <option value="very high pitch">Rất cao</option>
+                    </select>
+                  </div>
+
+                  {/* Dropdown 4: Phong cách */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-label-caps text-[11px] 2k:text-xs text-on-surface-variant flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[15px] text-primary">record_voice_over</span>
+                      Phong cách (Style)
+                    </label>
+                    <select
+                      value={designStyle}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setDesignStyle(val);
+                        updateDesignInstruct(designGender, designAge, designPitch, val);
+                      }}
+                      className="bg-surface-variant/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all cursor-pointer font-body-md"
+                    >
+                      <option value="normal">Bình thường (Tiêu chuẩn)</option>
+                      <option value="whisper">Thì thầm bí ẩn (Whisper)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Preview Selected Tags & Presets */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-label-caps text-on-surface-variant">Lệnh sẽ áp dụng:</span>
+                    <span className="px-2.5 py-1 rounded-md bg-primary/10 border border-primary/20 text-primary font-mono-data text-xs flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[14px]">sell</span>
+                      {instruct || `${designGender}, ${designAge}, ${designPitch}${designStyle === "whisper" ? ", whisper" : ""}`}
+                    </span>
+                  </div>
+
+                  {/* Quick Presets */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-on-surface-variant font-label-caps mr-1">Mẫu nhanh:</span>
+                    {DESIGN_PRESETS.map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleSelectDesignPreset(preset)}
+                        className="px-2.5 py-1 rounded-md text-xs font-label-caps bg-white/5 hover:bg-primary/20 hover:text-primary border border-white/5 hover:border-primary/30 transition-all text-on-surface-variant"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
 
             {/* Input section */}
-            <div className="flex flex-col gap-3 z-10">
-              <label
-                className="font-label-caps text-label-caps text-on-surface-variant flex items-center gap-2"
-                htmlFor="script-input"
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  edit_document
-                </span>
-                Văn bản đầu vào
-              </label>
+            <div className="flex flex-col gap-3 2k:gap-4 z-10">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <label
+                  className="font-label-caps text-label-caps 2k:text-sm text-on-surface-variant flex items-center gap-2"
+                  htmlFor="script-input"
+                >
+                  <span className="material-symbols-outlined text-[18px] 2k:text-[20px]">
+                    edit_document
+                  </span>
+                  Văn bản đầu vào
+                </label>
+
+                {/* Non-verbal symbols toolbar */}
+                <div className="flex flex-wrap items-center gap-1.5 2k:gap-2">
+                  <span className="text-[11px] 2k:text-xs font-label-caps text-on-surface-variant/70 mr-1 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px] 2k:text-[16px] text-primary">sentiment_satisfied</span>
+                    Thẻ biểu cảm:
+                  </span>
+                  {NON_VERBAL_SYMBOLS.map((s, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleInsertSymbol(s.tag)}
+                      className="px-2 2k:px-3 py-0.5 2k:py-1 rounded-md 2k:rounded-lg text-[11px] 2k:text-xs font-label-caps bg-surface-dim hover:bg-primary/20 text-on-surface hover:text-primary border border-white/10 hover:border-primary/30 transition-all flex items-center gap-1 shadow-sm active:scale-95"
+                      title={`Chèn thẻ ${s.tag}`}
+                    >
+                      <span>{s.emoji}</span>
+                      <span>{s.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <textarea
+                ref={textareaRef}
                 id="script-input"
-                className="w-full h-56 bg-surface-dim/80 backdrop-blur border border-white/10 rounded-xl p-5 text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none placeholder:text-on-surface-variant/50 font-body-md shadow-inner"
-                placeholder="Nhập nội dung cần chuyển thành giọng nói tại đây... (Hỗ trợ tiếng Việt và Code-switching Việt-Anh)"
+                className="w-full h-56 2k:h-72 bg-surface-dim/80 backdrop-blur border border-white/10 rounded-xl 2k:rounded-2xl p-5 2k:p-6 text-on-surface text-sm 2k:text-base 2k:leading-relaxed focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none placeholder:text-on-surface-variant/50 font-body-md shadow-inner"
+                placeholder="Nhập nội dung cần chuyển thành giọng nói tại đây... (Hỗ trợ tiếng Việt và các thẻ cảm xúc như [laughter], [sigh])"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
               ></textarea>
               <div className="flex justify-between items-center mt-1 px-1">
                 <div className="flex gap-2">
-                  <span className="inline-flex items-center rounded-md bg-secondary/10 px-2.5 py-1 font-label-caps text-[10px] uppercase text-secondary ring-1 ring-inset ring-secondary/20">
-                    Vietnamese
+                  <span className="inline-flex items-center rounded-md bg-secondary/10 px-2.5 2k:px-3 py-1 2k:py-1.5 font-label-caps text-[10px] 2k:text-xs uppercase text-secondary ring-1 ring-inset ring-secondary/20">
+                    600+ Ngôn ngữ
                   </span>
-                  <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 font-label-caps text-[10px] uppercase text-primary ring-1 ring-inset ring-primary/20">
-                    VoxCPM2
+                  <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 2k:px-3 py-1 2k:py-1.5 font-label-caps text-[10px] 2k:text-xs uppercase text-primary ring-1 ring-inset ring-primary/20">
+                    OmniVoice 24kHz
                   </span>
                 </div>
                 <span
-                  className={`font-mono-data text-mono-data text-xs ${text.length > 4500 ? "text-error" : "text-on-surface-variant"}`}
+                  className={`font-mono-data text-mono-data text-xs 2k:text-sm ${text.length > 4500 ? "text-error" : "text-on-surface-variant"}`}
                 >
                   {text.length} / 5000 chars
                 </span>
@@ -540,24 +875,41 @@ export default function Studio() {
         </div>
 
         {/* Right Column: Settings Sidebar */}
-        <div className="lg:col-span-4 flex flex-col gap-6 sticky top-6">
-          <div className="glass-card rounded-2xl p-6 shadow-2xl border border-white/5 flex flex-col gap-8 relative overflow-hidden">
+        {/* Right Column: Settings */}
+        <div className="lg:col-span-4 flex flex-col gap-6 2k:gap-8 sticky top-6">
+          <div className="glass-card rounded-2xl p-6 2k:p-8 shadow-2xl border border-white/5 flex flex-col gap-8 2k:gap-9 relative overflow-hidden">
             <div className="absolute -top-12 -right-12 w-32 h-32 bg-primary/5 rounded-full blur-[40px] pointer-events-none"></div>
 
-            <div className="flex items-center gap-2 border-b border-white/5 pb-4">
-              <span className="material-symbols-outlined text-primary text-[20px]">
+            <div className="flex items-center gap-2 border-b border-white/5 pb-4 2k:pb-5">
+              <span className="material-symbols-outlined text-primary text-[20px] 2k:text-[24px]">
                 tune
               </span>
-              <h3 className="font-label-caps text-label-caps text-on-surface">
+              <h3 className="font-label-caps text-label-caps 2k:text-base text-on-surface">
                 Cài đặt mô hình
               </h3>
+              {/* Nút Lưu cấu hình */}
+              <button
+                type="button"
+                onClick={saveModelConfig}
+                title="Lưu CFG · Speed · Pitch · Format làm mặc định"
+                className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-label-caps text-[11px] 2k:text-xs transition-all duration-300 border
+                  ${configSaved
+                    ? "bg-primary/20 text-primary border-primary/30 shadow-[0_0_10px_rgba(245,158,11,0.15)]"
+                    : "bg-white/5 hover:bg-primary/10 text-on-surface-variant hover:text-primary border-white/10 hover:border-primary/30"
+                  }`}
+              >
+                <span className={`material-symbols-outlined text-[14px] transition-all ${configSaved ? "scale-110" : ""}`}>
+                  {configSaved ? "bookmark_added" : "bookmark"}
+                </span>
+                {configSaved ? "Đã lưu!" : "Lưu cấu hình"}
+              </button>
             </div>
 
-            <div className="flex flex-col gap-8">
+            <div className="flex flex-col gap-7 2k:gap-8">
               {/* Project Selection */}
-              <div className="flex flex-col gap-4">
-                <label className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[16px]">
+              <div className="flex flex-col gap-3 2k:gap-3.5">
+                <label className="font-label-caps text-sm 2k:text-base text-on-surface-variant flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] 2k:text-[18px]">
                     workspaces
                   </span>
                   Lưu vào dự án
@@ -565,7 +917,7 @@ export default function Studio() {
                 <select
                   value={selectedProjectId}
                   onChange={(e) => setSelectedProjectId(e.target.value)}
-                  className="bg-surface-dim border border-white/5 rounded-lg px-4 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all font-body-md w-full cursor-pointer"
+                  className="bg-surface-dim border border-white/5 rounded-lg px-4 py-2.5 2k:py-3 text-sm 2k:text-base text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all font-body-md w-full cursor-pointer"
                 >
                   <option value="">-- Thư viện chung --</option>
                   {projects.map((p, index) => (
@@ -577,19 +929,19 @@ export default function Studio() {
               </div>
 
               {/* Format Selection */}
-              <div className="flex flex-col gap-4">
-                <label className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2">
+              <div className="flex flex-col gap-3 2k:gap-3.5">
+                <label className="font-label-caps text-sm 2k:text-base text-on-surface-variant flex items-center gap-2">
                   Định dạng tải về
                 </label>
                 <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-1 w-full shadow-inner">
                   <button
-                    className={`flex-1 py-1.5 rounded-md font-label-caps text-xs transition-all duration-300 ${useTTSStore.getState().audioFormat === "mp3" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                    className={`flex-1 py-1.5 2k:py-2 rounded-md font-label-caps text-xs 2k:text-sm transition-all duration-300 ${useTTSStore.getState().audioFormat === "mp3" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
                     onClick={() => setAudioFormat("mp3")}
                   >
                     .MP3 (Mặc định)
                   </button>
                   <button
-                    className={`flex-1 py-1.5 rounded-md font-label-caps text-xs transition-all duration-300 ${useTTSStore.getState().audioFormat === "wav" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+                    className={`flex-1 py-1.5 2k:py-2 rounded-md font-label-caps text-xs 2k:text-sm transition-all duration-300 ${useTTSStore.getState().audioFormat === "wav" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
                     onClick={() => setAudioFormat("wav")}
                   >
                     .WAV
@@ -598,15 +950,15 @@ export default function Studio() {
               </div>
 
               {/* CFG Scale */}
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 2k:gap-3.5">
                 <div className="flex justify-between items-center">
                   <label
-                    className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2"
+                    className="font-label-caps text-sm 2k:text-base text-on-surface-variant flex items-center gap-2"
                     htmlFor="cfg-scale"
                   >
                     Tỉ lệ hướng dẫn (CFG)
                   </label>
-                  <span className="font-mono-data text-mono-data text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20 shadow-inner">
+                  <span className="font-mono-data text-mono-data text-primary bg-primary/10 px-2 2k:px-3 py-0.5 2k:py-1 rounded border border-primary/20 shadow-inner text-sm 2k:text-base">
                     {cfg_value.toFixed(1)}
                   </span>
                 </div>
@@ -620,80 +972,23 @@ export default function Studio() {
                   value={cfg_value}
                   onChange={(e) => setCfgValue(parseFloat(e.target.value))}
                 />
-                <p className="text-[11px] text-on-surface-variant/70 leading-relaxed">
+                <p className="text-[11px] 2k:text-xs text-on-surface-variant/70 leading-relaxed">
                   Độ bám sát văn bản. Mặc định 2.0. Sử dụng 2.5 cho
                   code-switching (tiếng Anh xen tiếng Việt).
                 </p>
               </div>
 
-              {/* Timesteps */}
-              <div className="flex flex-col gap-4">
-                <div className="flex justify-between items-center">
-                  <label
-                    className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2"
-                    htmlFor="timesteps"
-                  >
-                    Bước suy luận
-                  </label>
-                  <span className="font-mono-data text-mono-data text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20 shadow-inner">
-                    {inference_timesteps}
-                  </span>
-                </div>
-                <input
-                  className="w-full accent-primary"
-                  id="timesteps"
-                  max="30"
-                  min="4"
-                  step="1"
-                  type="range"
-                  value={inference_timesteps}
-                  onChange={(e) => setTimesteps(parseInt(e.target.value))}
-                />
-                <p className="text-[11px] text-on-surface-variant/70 leading-relaxed">
-                  Số bước lấy mẫu (4-30). Giá trị càng cao cho chất lượng càng
-                  tốt nhưng thời gian xử lý lâu hơn. Đề xuất: 10-25.
-                </p>
-              </div>
-
-              {/* Seed */}
-              <div className="flex flex-col gap-4">
-                <div className="flex justify-between items-center">
-                  <label
-                    className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2"
-                    htmlFor="seed"
-                  >
-                    Hạt giống ngẫu nhiên (Seed)
-                  </label>
-                  <span className="font-mono-data text-mono-data text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20 shadow-inner">
-                    {seed}
-                  </span>
-                </div>
-                <input
-                  className="w-full accent-primary"
-                  id="seed"
-                  max="9999"
-                  min="0"
-                  step="1"
-                  type="range"
-                  value={seed}
-                  onChange={(e) => setSeed(parseInt(e.target.value))}
-                />
-                <p className="text-[11px] text-on-surface-variant/70 leading-relaxed">
-                  Giữ cố định Seed sẽ giúp mô hình tạo ra giọng điệu nhất quán
-                  cho cùng một văn bản.
-                </p>
-              </div>
 
               {/* Speed */}
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 2k:gap-3.5">
                 <div className="flex justify-between items-center">
                   <label
-                    className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2"
+                    className="font-label-caps text-sm 2k:text-base text-on-surface-variant flex items-center gap-2"
                     htmlFor="speed"
                   >
                     Tốc độ (Speed)
                   </label>
-                  <span className="font-mono-data text-mono-data text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20 shadow-inner">
+                  <span className="font-mono-data text-mono-data text-primary bg-primary/10 px-2 2k:px-3 py-0.5 2k:py-1 rounded border border-primary/20 shadow-inner text-sm 2k:text-base">
                     {speed.toFixed(2)}x
                   </span>
                 </div>
@@ -707,21 +1002,21 @@ export default function Studio() {
                   value={speed}
                   onChange={(e) => setSpeed(parseFloat(e.target.value))}
                 />
-                <p className="text-[11px] text-on-surface-variant/70 leading-relaxed">
+                <p className="text-[11px] 2k:text-xs text-on-surface-variant/70 leading-relaxed">
                   Tốc độ phát (0.5x - 2.0x). 1.0x là tốc độ bình thường.
                 </p>
               </div>
 
               {/* Pitch */}
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 2k:gap-3.5">
                 <div className="flex justify-between items-center">
                   <label
-                    className="font-label-caps text-sm text-on-surface-variant flex items-center gap-2"
+                    className="font-label-caps text-sm 2k:text-base text-on-surface-variant flex items-center gap-2"
                     htmlFor="pitch"
                   >
                     Cao độ (Pitch)
                   </label>
-                  <span className="font-mono-data text-mono-data text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20 shadow-inner">
+                  <span className="font-mono-data text-mono-data text-primary bg-primary/10 px-2 2k:px-3 py-0.5 2k:py-1 rounded border border-primary/20 shadow-inner text-sm 2k:text-base">
                     {pitch > 0 ? "+" : ""}
                     {pitch.toFixed(1)}
                   </span>
@@ -736,7 +1031,7 @@ export default function Studio() {
                   value={pitch}
                   onChange={(e) => setPitch(parseFloat(e.target.value))}
                 />
-                <p className="text-[11px] text-on-surface-variant/70 leading-relaxed">
+                <p className="text-[11px] 2k:text-xs text-on-surface-variant/70 leading-relaxed">
                   Điều chỉnh tông giọng (bước âm - nửa cung). Tăng để giọng cao
                   hơn, giảm để trầm hơn.
                 </p>
@@ -744,23 +1039,23 @@ export default function Studio() {
             </div>
 
             {/* Action Button */}
-            <div className="mt-4">
+            <div className="mt-4 2k:mt-6">
               <button
                 id="generate-btn"
-                className={`w-full py-4 px-6 font-label-caps text-label-caps rounded-xl flex items-center justify-center gap-2 overflow-hidden relative group transition-all duration-300 shadow-[0_4px_14px_0_rgba(245,158,11,0.2)] hover:shadow-[0_6px_20px_rgba(245,158,11,0.3)] hover:-translate-y-0.5 ${isLoading ? "bg-surface-variant text-on-surface-variant cursor-not-allowed shadow-none hover:translate-y-0" : "bg-primary text-on-primary glow-button"}`}
+                className={`w-full py-4 2k:py-5 px-6 2k:px-8 font-label-caps text-label-caps 2k:text-base rounded-xl 2k:rounded-2xl flex items-center justify-center gap-2 overflow-hidden relative group transition-all duration-300 shadow-[0_4px_14px_0_rgba(245,158,11,0.2)] hover:shadow-[0_6px_20px_rgba(245,158,11,0.3)] hover:-translate-y-0.5 ${isLoading ? "bg-surface-variant text-on-surface-variant cursor-not-allowed shadow-none hover:translate-y-0" : "bg-primary text-on-primary glow-button"}`}
                 onClick={handleGenerate}
                 disabled={isLoading}
               >
                 <span
-                  className={`relative z-10 flex items-center gap-2 text-sm ${isLoading ? "hidden" : ""}`}
+                  className={`relative z-10 flex items-center gap-2 text-sm 2k:text-base font-bold ${isLoading ? "hidden" : ""}`}
                 >
-                  <span className="material-symbols-outlined">play_arrow</span>
+                  <span className="material-symbols-outlined 2k:text-2xl">play_arrow</span>
                   BẮT ĐẦU TỔNG HỢP
                 </span>
                 <div
-                  className={`relative z-10 flex items-center gap-2 ${isLoading ? "" : "hidden"}`}
+                  className={`relative z-10 flex items-center gap-2 text-sm 2k:text-base ${isLoading ? "" : "hidden"}`}
                 >
-                  <span className="material-symbols-outlined animate-spin">
+                  <span className="material-symbols-outlined animate-spin 2k:text-2xl">
                     sync
                   </span>
                   ĐANG XỬ LÝ...

@@ -9,6 +9,10 @@ module.exports = {
   ],
   theme: {
     extend: {
+      screens: {
+        '2k': '1921px',
+        '3xl': '1921px',
+      },
       colors: {
         "on-surface": "#e5e1e4",
         "secondary-fixed-dim": "#d0bcff",
@@ -86,6 +90,7 @@ module.exports = {
       },
       spacing: {
         "max-width": "1440px",
+        "max-width-2k": "1720px",
         "margin-mobile": "16px",
         "gutter-desktop": "24px",
         "unit": "4px",
