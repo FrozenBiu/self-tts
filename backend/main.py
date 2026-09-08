@@ -412,6 +412,32 @@ async def generate_random_voice(background_tasks: BackgroundTasks):
     }
 
 
+@app.delete(
+    "/api/voices/discard-random/{filename}",
+    summary="Xoá file preview giọng ngẫu nhiên khi người dùng huỷ hoặc không lưu",
+    tags=["TTS"],
+)
+async def discard_random_voice(filename: str):
+    """
+    Xoá ngay file audio preview ngẫu nhiên trong outputs/ khi người dùng bỏ qua hoặc không lưu.
+    Chỉ cho phép xoá các file có tiền tố 'random_preview_'.
+    """
+    safe_filename = Path(filename).name
+    if not safe_filename.startswith("random_preview_"):
+        raise HTTPException(
+            status_code=400,
+            detail="Chỉ được phép xoá file preview ngẫu nhiên (random_preview_*)",
+        )
+
+    file_path = OUTPUTS_DIR / safe_filename
+    if file_path.exists():
+        file_path.unlink(missing_ok=True)
+        logger.info(f"🗑️ Đã xoá file preview ngẫu nhiên bị huỷ: {safe_filename}")
+        return {"message": f"Đã xoá file preview {safe_filename}"}
+
+    return {"message": "File không tồn tại hoặc đã được xoá trước đó"}
+
+
 @app.post(
     "/api/voices/save-random",
     summary="Lưu giọng ngẫu nhiên vừa preview thành custom voice",
@@ -428,10 +454,11 @@ async def save_random_voice(
     """
     Chuyển file audio preview ngẫu nhiên thành custom voice chính thức.
     Trích xuất VoiceClonePrompt (.pt) từ audio vừa sinh để dùng lại sau.
+    Sau khi lưu thành công, file preview tạm trong outputs/ sẽ được xoá để tránh rác đệm.
     """
     import soundfile as sf
 
-    src_path = OUTPUTS_DIR / filename
+    src_path = OUTPUTS_DIR / Path(filename).name
     if not src_path.exists():
         raise HTTPException(
             status_code=404,
@@ -478,7 +505,9 @@ async def save_random_voice(
         with open(CUSTOM_VOICES_JSON, "w", encoding="utf-8") as f:
             json.dump(custom_voices_list, f, ensure_ascii=False, indent=2)
 
-        logger.info(f"💾 Đã lưu giọng random: {custom_id} — {name}")
+        # Xoá file preview tạm trong outputs/ sau khi đã lưu thành công vào presets/custom/
+        src_path.unlink(missing_ok=True)
+        logger.info(f"💾 Đã lưu giọng random: {custom_id} — {name} và dọn dẹp file tạm {src_path.name}")
         return {"message": "Lưu giọng thành công!", "voice": new_voice}
 
     except Exception as e:
@@ -487,7 +516,23 @@ async def save_random_voice(
 
 
 def _cleanup_old_files(keep_latest: int = 200) -> None:
-    """Dọn dẹp outputs/ nếu vượt quá keep_latest file."""
+    """
+    Dọn dẹp outputs/:
+    - Xoá các file preview ngẫu nhiên 'random_preview_*' không được lưu.
+    - Xoá các file TTS cũ nếu vượt quá keep_latest.
+    """
+    import time
+    now = time.time()
+
+    # Dọn sạch các file preview ngẫu nhiên chưa lưu có tuổi thọ > 10 phút
+    for p in list(OUTPUTS_DIR.glob("random_preview_*")):
+        try:
+            if now - p.stat().st_mtime > 600:  # 10 phút
+                p.unlink(missing_ok=True)
+                logger.info(f"🗑️ Tự động dọn dẹp file preview ngẫu nhiên hết hạn: {p.name}")
+        except Exception:
+            pass
+
     files = list(OUTPUTS_DIR.glob("*.wav")) + list(OUTPUTS_DIR.glob("*.mp3"))
     files = sorted(files, key=lambda f: f.stat().st_mtime)
     for old_file in files[:-keep_latest]:

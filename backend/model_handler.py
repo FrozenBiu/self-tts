@@ -269,6 +269,78 @@ def generate_audio(
     design_voice_clone_prompt: VoiceClonePrompt | None = None
     clean_inst = sanitize_instruct(instruct) if mode == "design" else None
 
+    # ─── [Voice Cloning] CUDA Warmup Phase ────────────────────────────────────
+    # Vấn đề: Chunk đầu tiên phải chịu chi phí khởi động GPU (CUDA kernel
+    # compilation, cuDNN algorithm selection, memory allocation). Các chunk sau
+    # dùng lại cache đó nên "trạng thái số học" của diffusion ổn định hơn,
+    # dẫn đến ngắt nghỉ và giọng đọc tự nhiên hơn ở đoạn cuối.
+    #
+    # Giải pháp: Chạy một lần inference ngắn với cùng voice_clone_prompt / ref_audio
+    # trước khi bắt đầu vòng lặp chunk thực, để GPU ở trạng thái "nóng" ngay
+    # từ chunk 1. Output warmup bị bỏ đi, không ghép vào audio cuối.
+    # ─────────────────────────────────────────────────────────────────────────
+    if mode == "clone":
+        try:
+            logger.info("🔥 [Voice Cloning] Đang warmup GPU để đảm bảo chất lượng đồng đều từ chunk 1…")
+            warmup_kwargs: dict = {
+                "text": "Xin chào.",
+                "language": "vi",
+                "num_step": num_step,
+                "guidance_scale": cfg_value,
+                "normalize_text": False,
+                "speed": speed,
+            }
+            if voice_clone_prompt is not None:
+                warmup_kwargs["voice_clone_prompt"] = voice_clone_prompt
+            elif ref_audio:
+                warmup_kwargs["ref_audio"] = ref_audio
+                if ref_text and ref_text.strip():
+                    warmup_kwargs["ref_text"] = clean_vietnamese_text(ref_text)
+            model.generate(**warmup_kwargs)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("✅ [Voice Cloning] GPU warmup xong — bắt đầu sinh audio thực!")
+        except Exception as e:
+            logger.warning(f"⚠️ GPU warmup thất bại (không ảnh hưởng kết quả): {e}")
+
+    # ─── [Voice Design] Warmup Phase ─────────────────────────────────────────
+    # Vấn đề: Trong mode "design", chunk 1 được sinh từ `instruct` thuần (chưa có
+    # ngữ cảnh giọng nói cụ thể), nên thường nghe cứng và kém tự nhiên hơn
+    # các chunk sau — vốn được clone từ audio chunk 1 đã có giọng rõ ràng.
+    #
+    # Giải pháp: Sinh trước một câu warmup ngắn để trích xuất VoiceClonePrompt,
+    # sau đó dùng prompt đó cho TẤT CẢ các chunk thực tế (kể cả chunk 1).
+    # Kết quả: Toàn bộ audio nghe đều và tự nhiên như "đoạn cuối" trước đây.
+    # ─────────────────────────────────────────────────────────────────────────
+    if mode == "design" and clean_inst:
+        try:
+            logger.info("🎙️ [Voice Design] Đang sinh warmup để trích xuất VoiceClonePrompt cho toàn bộ audio…")
+            warmup_text = "Xin chào, đây là giọng đọc thử nghiệm."
+            warmup_list = model.generate(
+                text=warmup_text,
+                language="vi",
+                num_step=num_step,
+                guidance_scale=cfg_value,
+                normalize_text=False,
+                speed=speed,
+                instruct=clean_inst,
+            )
+            if warmup_list and len(warmup_list) > 0:
+                warmup_np = np.array(warmup_list[0], dtype=np.float32)
+                if warmup_np.ndim > 1:
+                    warmup_np = warmup_np.squeeze()
+                warmup_tensor = torch.from_numpy(warmup_np)
+                design_voice_clone_prompt = model.create_voice_clone_prompt(
+                    ref_audio=(warmup_tensor, SAMPLE_RATE),
+                    ref_text=warmup_text,
+                    preprocess_prompt=True,
+                )
+                logger.info("✅ [Voice Design] Warmup hoàn tất — toàn bộ chunks sẽ dùng giọng nhất quán!")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception as e:
+            logger.warning(f"⚠️ Warmup thất bại, fallback về mode instruct cho chunk 1: {e}")
+
     try:
         for idx, chunk in enumerate(chunks):
             logger.info(f"Đang sinh chunk [{idx + 1}/{len(chunks)}]: '{chunk[:50]}...'")
@@ -291,10 +363,11 @@ def generate_audio(
                         gen_kwargs["ref_text"] = clean_vietnamese_text(ref_text)
             elif mode == "design":
                 if design_voice_clone_prompt is not None:
-                    # Từ chunk 2 trở đi: Sử dụng prompt clone từ Chunk 1 để giữ 100% cùng 1 người nói
+                    # Dùng VoiceClonePrompt từ warmup để đảm bảo TOÀN BỘ chunks
+                    # (kể cả chunk 1) đều nghe nhất quán và tự nhiên như nhau
                     gen_kwargs["voice_clone_prompt"] = design_voice_clone_prompt
                 elif clean_inst:
-                    # Chunk 1: Sinh giọng theo thuộc tính instruct người dùng đã thiết kế
+                    # Fallback nếu warmup thất bại: chunk 1 vẫn dùng instruct
                     gen_kwargs["instruct"] = clean_inst
 
             audio_list = model.generate(**gen_kwargs)
@@ -312,19 +385,6 @@ def generate_audio(
                     pass
 
                 all_audios.append(audio_np)
-
-                # Neo giọng cho mode design: Trích xuất VoiceClonePrompt từ chunk đầu tiên
-                if mode == "design" and design_voice_clone_prompt is None and len(chunks) > 1:
-                    try:
-                        tensor_audio = torch.from_numpy(audio_np)
-                        design_voice_clone_prompt = model.create_voice_clone_prompt(
-                            ref_audio=(tensor_audio, SAMPLE_RATE),
-                            ref_text=chunk,
-                            preprocess_prompt=True,
-                        )
-                        logger.info("✨ [Voice Design] Đã neo giọng thành công từ Chunk 1 cho toàn bộ các chunk tiếp theo!")
-                    except Exception as e:
-                        logger.warning(f"Không thể tạo design_voice_clone_prompt từ chunk 1: {e}")
 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()

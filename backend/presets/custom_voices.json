@@ -18,16 +18,6 @@
     "url": "http://localhost:8000/presets/custom/custom_fe662990.wav"
   },
   {
-    "id": "custom_2232daf3",
-    "name": "Ngọc Huyền 2.0",
-    "gender": "female",
-    "description": "Giọng tự tạo",
-    "icon": "record_voice_over",
-    "prompt_text": "",
-    "url": "http://localhost:8000/presets/custom/custom_2232daf3.wav",
-    "has_prompt_pt": true
-  },
-  {
     "id": "custom_0bc4de90",
     "name": "Nhật Phong",
     "gender": "male",
@@ -35,6 +25,16 @@
     "icon": "record_voice_over",
     "prompt_text": "",
     "url": "http://localhost:8000/presets/custom/custom_0bc4de90.wav",
+    "has_prompt_pt": true
+  },
+  {
+    "id": "custom_3f916630",
+    "name": "Ngọc Huyền",
+    "gender": "female",
+    "description": "Giọng tự tạo",
+    "icon": "record_voice_over",
+    "prompt_text": "",
+    "url": "http://localhost:8000/presets/custom/custom_3f916630.wav",
     "has_prompt_pt": true
   }
 ]

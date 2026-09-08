@@ -1,6 +1,6 @@
 import { useTTSStore } from "../store/useTTSStore";
 import { toast } from "sonner";
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 
 export default function Studio() {
   const {
@@ -36,6 +36,25 @@ export default function Studio() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Lưu cấu hình mô hình vào localStorage ─────────────────────────────────
+  const [configSaved, setConfigSaved] = useState(false);
+
+  const saveModelConfig = useCallback(() => {
+    const config = {
+      cfg_value,
+      speed,
+      pitch,
+      audioFormat: useTTSStore.getState().audioFormat,
+    };
+    localStorage.setItem("tts_model_config", JSON.stringify(config));
+    setConfigSaved(true);
+    toast.success(
+      `Đã lưu cấu hình: CFG ${cfg_value.toFixed(1)} · Speed ${speed.toFixed(2)}x · Pitch ${pitch >= 0 ? "+" : ""}${pitch.toFixed(1)}`,
+      { duration: 3000 },
+    );
+    setTimeout(() => setConfigSaved(false), 2000);
+  }, [cfg_value, speed, pitch]);
 
   const NON_VERBAL_SYMBOLS = [
     { tag: "[laughter]", label: "Cười", emoji: "😄" },
@@ -868,6 +887,22 @@ export default function Studio() {
               <h3 className="font-label-caps text-label-caps 2k:text-base text-on-surface">
                 Cài đặt mô hình
               </h3>
+              {/* Nút Lưu cấu hình */}
+              <button
+                type="button"
+                onClick={saveModelConfig}
+                title="Lưu CFG · Speed · Pitch · Format làm mặc định"
+                className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-label-caps text-[11px] 2k:text-xs transition-all duration-300 border
+                  ${configSaved
+                    ? "bg-primary/20 text-primary border-primary/30 shadow-[0_0_10px_rgba(245,158,11,0.15)]"
+                    : "bg-white/5 hover:bg-primary/10 text-on-surface-variant hover:text-primary border-white/10 hover:border-primary/30"
+                  }`}
+              >
+                <span className={`material-symbols-outlined text-[14px] transition-all ${configSaved ? "scale-110" : ""}`}>
+                  {configSaved ? "bookmark_added" : "bookmark"}
+                </span>
+                {configSaved ? "Đã lưu!" : "Lưu cấu hình"}
+              </button>
             </div>
 
             <div className="flex flex-col gap-7 2k:gap-8">

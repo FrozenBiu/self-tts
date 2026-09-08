@@ -63,6 +63,7 @@ export default function CloningVoice() {
     null,
   );
   const [randomName, setRandomName] = useState("");
+  const currentRandomFileRef = useRef<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -70,12 +71,40 @@ export default function CloningVoice() {
 
   useEffect(() => {
     fetchVoices();
+    // Khi rời trang (unmount), dọn dẹp file preview ngẫu nhiên nếu người dùng chưa bấm Lưu
+    return () => {
+      if (currentRandomFileRef.current) {
+        discardRandomPreview(currentRandomFileRef.current);
+      }
+    };
   }, []);
 
   const customVoices = voices.filter((v) => v.type === "custom");
 
+  // ── Dọn dẹp file preview ngẫu nhiên ─────────────────────────────────────────
+  const discardRandomPreview = async (filename: string) => {
+    if (!filename) return;
+    try {
+      await fetch(
+        `http://localhost:8000/api/voices/discard-random/${encodeURIComponent(filename)}`,
+        {
+          method: "DELETE",
+          keepalive: true,
+        },
+      );
+    } catch (err) {
+      console.warn("Không thể dọn dẹp file preview:", err);
+    }
+  };
+
   // ── Tạo giọng ngẫu nhiên ──────────────────────────────────────────────────
   const handleGenerateRandom = async () => {
+    // Nếu trước đó đang có file preview chưa lưu, xóa file cũ đi
+    if (currentRandomFileRef.current) {
+      discardRandomPreview(currentRandomFileRef.current);
+      currentRandomFileRef.current = null;
+    }
+
     setIsGeneratingRandom(true);
     setRandomResult(null);
     const toastId = toast.loading("🎲 Đang tạo giọng ngẫu nhiên...");
@@ -89,6 +118,7 @@ export default function CloningVoice() {
       }
       const data: RandomVoiceResult = await res.json();
       setRandomResult(data);
+      currentRandomFileRef.current = data.filename;
       setRandomName(
         `Giọng ${data.gender === "female" ? "nữ" : "nam"} #${data.seed % 1000}`,
       );
@@ -98,6 +128,17 @@ export default function CloningVoice() {
     } finally {
       setIsGeneratingRandom(false);
     }
+  };
+
+  const handleDiscardRandom = async () => {
+    if (currentRandomFileRef.current) {
+      const fn = currentRandomFileRef.current;
+      currentRandomFileRef.current = null;
+      await discardRandomPreview(fn);
+    }
+    setRandomResult(null);
+    setRandomName("");
+    toast.info("Đã bỏ qua giọng ngẫu nhiên và dọn dẹp file đệm.");
   };
 
   const handleSaveRandom = async () => {
@@ -129,6 +170,7 @@ export default function CloningVoice() {
       toast.success(`Đã lưu giọng "${randomName.trim()}" thành công!`, {
         id: toastId,
       });
+      currentRandomFileRef.current = null; // Đã lưu thành công (backend tự dọn file tạm)
       setRandomResult(null);
       setRandomName("");
       await fetchVoices();
@@ -588,10 +630,7 @@ export default function CloningVoice() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setRandomResult(null);
-                        setRandomName("");
-                      }}
+                      onClick={handleDiscardRandom}
                       className="px-3 py-2 rounded-lg font-label-caps text-xs text-on-surface-variant hover:text-error hover:bg-error/10 border border-white/5 hover:border-error/30 transition-all"
                       title="Bỏ qua giọng này"
                     >

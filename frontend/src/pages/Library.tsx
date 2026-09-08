@@ -168,7 +168,7 @@ export default function Library() {
 
   // Phân trang
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const itemsPerPage = 5;
 
   const totalPages = Math.ceil(history.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;

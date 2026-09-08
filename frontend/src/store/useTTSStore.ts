@@ -77,19 +77,25 @@ interface TTSState {
   deleteCustomVoice: (id: string) => Promise<void>;
 }
 
-export const useTTSStore = create<TTSState>((set, get) => ({
+export const useTTSStore = create<TTSState>((set, get) => {
+  // Đọc cấu hình mô hình đã lưu từ localStorage
+  const _savedConfig = JSON.parse(
+    localStorage.getItem("tts_model_config") || "{}",
+  );
+
+  return {
   text: "",
   mode: "clone",
   instruct: "",
   num_step: 32,
-  cfg_value: 2.0,
+  cfg_value: typeof _savedConfig.cfg_value === "number" ? _savedConfig.cfg_value : 2.0,
   inference_timesteps: 32,
   seed: 42,
-  speed: 1.0,
-  pitch: 0.0,
+  speed: typeof _savedConfig.speed === "number" ? _savedConfig.speed : 1.0,
+  pitch: typeof _savedConfig.pitch === "number" ? _savedConfig.pitch : 0.0,
   isLoading: false,
   audioUrl: null,
-  audioFormat: "mp3",
+  audioFormat: typeof _savedConfig.audioFormat === "string" ? _savedConfig.audioFormat : "mp3",
   history: JSON.parse(localStorage.getItem("tts_history") || "[]"),
   voices: [],
   selectedVoiceId: null,
@@ -215,4 +221,5 @@ export const useTTSStore = create<TTSState>((set, get) => ({
     }
   },
   setSelectedVoiceId: (id) => set({ selectedVoiceId: id }),
-}));
+  }; // end return
+}); // end create
