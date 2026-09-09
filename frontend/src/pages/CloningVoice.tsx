@@ -452,8 +452,9 @@ export default function CloningVoice() {
               <div className="flex flex-col gap-2 col-span-2">
                 <label className="font-label-caps text-xs text-on-surface-variant flex items-center justify-between">
                   <span>Nội dung văn bản đoạn thu âm (Transcript)</span>
-                  <span className="text-primary text-[11px] lowercase">
-                    Tùy chọn - tự động bóc băng nếu để trống
+                  <span className="text-primary text-[11px]">
+                    Hệ thống sẽ tự bóc tách văn bản từ file âm thanh nếu để
+                    trống
                   </span>
                 </label>
                 <textarea

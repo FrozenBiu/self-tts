@@ -67,7 +67,7 @@ export function MainLayout() {
               <span className="material-symbols-outlined 2k:text-3xl">
                 record_voice_over
               </span>
-              Cloning Voice
+              Tạo giọng mới
             </Link>
           </li>
           <li>
@@ -83,7 +83,7 @@ export function MainLayout() {
               <span className="material-symbols-outlined 2k:text-3xl">
                 folder_shared
               </span>
-              Projects
+              Dự án
             </Link>
           </li>
         </ul>
