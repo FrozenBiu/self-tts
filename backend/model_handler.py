@@ -15,12 +15,14 @@ import gc
 import re
 import logging
 from pathlib import Path
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
 import soundfile as sf
+# pyrefly: ignore [missing-import]
 import numpy as np
+# pyrefly: ignore [missing-import]
 import torch
-import librosa
-
 # pyrefly: ignore [missing-import]
 from omnivoice import OmniVoice, VoiceClonePrompt
 
@@ -44,6 +46,9 @@ MAX_CHUNK_CHARS = int(os.getenv("MAX_CHUNK_CHARS", "450"))
 ENABLE_WARMUP_ONCE = os.getenv("ENABLE_WARMUP_ONCE", "false").lower() in ("true", "1", "yes")
 ENABLE_EMPTY_CACHE = os.getenv("ENABLE_EMPTY_CACHE", "false").lower() in ("true", "1", "yes")
 CUDNN_BENCHMARK = os.getenv("CUDNN_BENCHMARK", "true").lower() in ("true", "1", "yes")
+
+# Backend mã hóa khi lưu file MP3: 'auto', 'soundfile', 'torchaudio'
+AUDIO_MP3_BACKEND = os.getenv("AUDIO_MP3_BACKEND", "auto").strip().lower()
 
 _has_warmed_up = False
 
@@ -239,6 +244,61 @@ def sanitize_instruct(instruct: str | None) -> str | None:
     return ", ".join(cleaned_tags)
 
 
+def _save_audio_file(
+    output_path: Path,
+    audio: np.ndarray,
+    sample_rate: int = SAMPLE_RATE,
+    audio_format: str = "mp3",
+) -> None:
+    """
+    Lưu dữ liệu âm thanh numpy array ra đĩa với định dạng yêu cầu.
+    Đối với MP3, hỗ trợ tùy chọn backend qua biến môi trường AUDIO_MP3_BACKEND ('auto', 'soundfile', 'torchaudio')
+    kèm cơ chế tự động chuyển đổi dự phòng (graceful fallback) khi thiếu thư viện encoder.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if audio_format.lower() != "mp3":
+        sf.write(str(output_path), audio, sample_rate, format="WAV")
+        return
+
+    def _write_with_soundfile():
+        # sf.write MP3 yêu cầu libsndfile >= 1.1.0, không cần TorchCodec/FFmpeg
+        sf.write(str(output_path), audio, sample_rate, format="MP3")
+
+    def _write_with_torchaudio():
+        # pyrefly: ignore [missing-import]
+        import torchaudio
+
+        tensor_audio = torch.from_numpy(audio).unsqueeze(0)
+        torchaudio.save(str(output_path), tensor_audio, sample_rate, format="mp3")
+
+    backend = AUDIO_MP3_BACKEND.lower()
+    if backend == "torchaudio":
+        try:
+            _write_with_torchaudio()
+        except Exception as e:
+            logger.warning(
+                f"⚠️ [MP3 Export] torchaudio.save thất bại ({e}). Tự động chuyển đổi fallback sang soundfile..."
+            )
+            _write_with_soundfile()
+    elif backend == "soundfile":
+        try:
+            _write_with_soundfile()
+        except Exception as e:
+            logger.warning(
+                f"⚠️ [MP3 Export] sf.write thất bại ({e}). Tự động chuyển đổi fallback sang torchaudio..."
+            )
+            _write_with_torchaudio()
+    else:  # "auto" (mặc định)
+        try:
+            _write_with_soundfile()
+        except Exception as e:
+            logger.warning(
+                f"⚠️ [MP3 Export] soundfile không thể ghi MP3 ({e}). Đang tự động thử bằng torchaudio..."
+            )
+            _write_with_torchaudio()
+
+
 def generate_audio(
     text: str,
     output_path: Path,
@@ -408,19 +468,12 @@ def generate_audio(
     # Lưu ý: Tốc độ (Speed) đã được OmniVoice xử lý tự nhiên trực tiếp trong diffusion tokens,
     # không dùng librosa.effects.time_stretch để tránh méo pha (phase distortion/metallic reverb).
     if pitch != 0.0:
+        # pyrefly: ignore [missing-import]
         import librosa
         audio = librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=pitch)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Lưu file
-    if audio_format == "mp3":
-        import torchaudio
-
-        tensor_audio = torch.from_numpy(audio).unsqueeze(0)
-        torchaudio.save(str(output_path), tensor_audio, SAMPLE_RATE, format="mp3")
-    else:
-        sf.write(str(output_path), audio, SAMPLE_RATE)
+    # Lưu file âm thanh ra đĩa theo định dạng yêu cầu
+    _save_audio_file(output_path, audio, SAMPLE_RATE, audio_format)
 
     logger.info(
         f"💾 Đã lưu: {output_path.name} | {len(audio) / SAMPLE_RATE:.2f}s | {SAMPLE_RATE}Hz | Format: {audio_format}"
