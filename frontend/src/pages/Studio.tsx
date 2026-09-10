@@ -1,9 +1,11 @@
 import { useTTSStore } from "../store/useTTSStore";
 import { toast } from "sonner";
 import React, { useRef, useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { downloadAudioFile } from "../utils/download";
 
 export default function Studio() {
+  const navigate = useNavigate();
   const {
     text,
     mode,
@@ -31,6 +33,8 @@ export default function Studio() {
     pinnedVoices,
     togglePin,
     projects,
+    history,
+    setPendingVoiceForVideo,
   } = useTTSStore();
 
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -827,12 +831,35 @@ export default function Studio() {
                       onClick={(e) => {
                         e.preventDefault();
                         if (!audioUrl) return;
+                        const latestRecord = history[0] || {
+                          id: `voice_${Date.now()}`,
+                          text,
+                          url: audioUrl,
+                          timestamp: Date.now(),
+                          voiceName: voices.find((v) => v.id === selectedVoiceId)?.name || "Giọng đọc mới",
+                        };
+                        setPendingVoiceForVideo(latestRecord);
+                        toast.success("Đang chuyển sang Video Studio với giọng đọc này!");
+                        navigate("/autocaption");
+                      }}
+                      className="px-3.5 py-1.5 bg-primary/20 hover:bg-primary hover:text-black text-primary border border-primary/40 rounded-md font-label-caps text-xs transition-all shadow-sm flex items-center gap-1.5 font-semibold group"
+                      title="Chuyển sang làm video với giọng đọc này trong Auto Caption Studio"
+                    >
+                      <span className="material-symbols-outlined text-[16px] group-hover:rotate-6 transition-transform">
+                        movie_edit
+                      </span>
+                      LÀM VIDEO NGAY
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (!audioUrl) return;
                         const filename =
                           audioUrl.split("/").pop() ||
                           `audio.${useTTSStore.getState().audioFormat}`;
                         downloadAudioFile(audioUrl, filename);
                       }}
-                      className="px-4 py-1.5 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 rounded-md font-label-caps text-xs transition-colors shadow-sm flex items-center gap-2"
+                      className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-on-surface-variant hover:text-on-surface border border-white/10 rounded-md font-label-caps text-xs transition-colors shadow-sm flex items-center gap-2"
                     >
                       <span className="material-symbols-outlined text-[16px]">
                         download

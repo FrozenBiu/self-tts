@@ -53,6 +53,7 @@ def get_whisper_model(model_size: str | None = None) -> WhisperModel:
 def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
     """
     Trích xuất âm thanh từ video sang định dạng WAV 16kHz Mono (chuẩn tối ưu cho Whisper).
+    Nếu video không có luồng âm thanh nào (video câm), tự động tạo âm thanh im lặng (silent audio) để không crash.
     """
     output_audio_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -72,6 +73,26 @@ def extract_audio(video_path: Path, output_audio_path: Path) -> Path:
     logger.info(f"Trích xuất âm thanh từ {video_path.name} -> {output_audio_path.name}")
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
+        # Nếu video không có stream âm thanh (video câm), tạo file audio im lặng thay vì báo lỗi
+        err_lower = res.stderr.lower()
+        if "does not contain any stream" in err_lower or "output file is empty" in err_lower or "matches no streams" in err_lower:
+            logger.warning(f"Video {video_path.name} không có luồng âm thanh gốc. Tạo file âm thanh im lặng...")
+            silent_cmd = [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=16000:cl=mono",
+                "-t",
+                "1",
+                "-acodec",
+                "pcm_s16le",
+                str(output_audio_path),
+            ]
+            subprocess.run(silent_cmd, capture_output=True, check=True)
+            return output_audio_path
+
         logger.error(f"Lỗi khi trích xuất âm thanh: {res.stderr}")
         raise RuntimeError(f"FFmpeg extract audio thất bại: {res.stderr}")
 
@@ -176,8 +197,9 @@ def align_words_with_reference(
     segments: list[dict[str, Any]], reference_text: str
 ) -> list[dict[str, Any]]:
     """
-    So khớp danh sách từ nhận diện bởi Whisper với kịch bản gốc của người dùng bằng difflib.
-    Tự động sửa các lỗi nghe nhầm chính tả trong khi bảo toàn 100% mốc thời gian start & end của từ.
+    So khớp danh sách từ nhận diện bởi Whisper với kịch bản gốc của người dùng bằng difflib.SequenceMatcher.
+    Bảo toàn 100% các từ trong kịch bản tham chiếu (kể cả các từ ở đầu câu bị Whisper bỏ sót do VAD hoặc âm lượng nhỏ).
+    Tự động nội suy mốc thời gian start & end hợp lý cho các từ được chèn thêm (insert) từ 0.0s.
     Sau đó tự động chia nhỏ thành các câu phụ đề 4-9 từ chuẩn ngắn gọn, không bị tràn màn hình.
     """
     import difflib
@@ -191,14 +213,22 @@ def align_words_with_reference(
 
     # Thu thập toàn bộ từ từ các segments
     all_words: list[dict[str, Any]] = []
-    current_global_idx = 0
     for seg in segments:
         for w in seg.get("words", []):
             all_words.append(dict(w))
-            current_global_idx += 1
 
     if not all_words:
-        return segments
+        synthetic_words: list[dict[str, Any]] = []
+        cur_t = 0.0
+        for w in ref_words:
+            synthetic_words.append({
+                "word": w,
+                "start": round(cur_t, 2),
+                "end": round(cur_t + 0.3, 2),
+                "probability": 0.95,
+            })
+            cur_t += 0.3
+        return resegment_words(synthetic_words, max_words=9, max_chars=46)
 
     def clean_token(w: str) -> str:
         return re.sub(r"[^\w\s]", "", w.lower()).strip()
@@ -207,41 +237,117 @@ def align_words_with_reference(
     ref_clean = [clean_token(w) for w in ref_words]
 
     matcher = difflib.SequenceMatcher(None, whisper_clean, ref_clean)
+    aligned_words: list[dict[str, Any]] = []
 
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             for idx in range(i2 - i1):
-                all_words[i1 + idx]["word"] = ref_words[j1 + idx]
-        elif tag == "replace":
-            w_len = i2 - i1
-            r_len = j2 - j1
-            if w_len == r_len:
-                for idx in range(w_len):
-                    all_words[i1 + idx]["word"] = ref_words[j1 + idx]
-            elif w_len == 1 and r_len > 1:
-                all_words[i1]["word"] = " ".join(ref_words[j1:j2])
-            elif w_len > 1 and r_len == 1:
-                all_words[i1]["word"] = ref_words[j1]
-                for idx in range(i1 + 1, i2):
-                    all_words[idx]["word"] = ""
-            elif w_len > 1 and r_len > 1:
-                min_len = min(w_len, r_len)
-                for idx in range(min_len):
-                    if idx == min_len - 1 and r_len > w_len:
-                        all_words[i1 + idx]["word"] = " ".join(ref_words[j1 + idx:j2])
-                    else:
-                        all_words[i1 + idx]["word"] = ref_words[j1 + idx]
-                if w_len > r_len:
-                    for idx in range(i1 + r_len, i2):
-                        all_words[idx]["word"] = ""
+                w_item = dict(all_words[i1 + idx])
+                w_item["word"] = ref_words[j1 + idx]
+                aligned_words.append(w_item)
 
-    valid_words = [w for w in all_words if w.get("word", "").strip()]
-    if not valid_words:
+        elif tag == "replace":
+            seg_start = all_words[i1]["start"]
+            seg_end = all_words[i2 - 1]["end"]
+            ref_sub = ref_words[j1:j2]
+            num_sub = len(ref_sub)
+            if num_sub > 0:
+                step = (seg_end - seg_start) / num_sub
+                if step < 0.15:
+                    step = 0.25
+                    seg_end = seg_start + step * num_sub
+                for idx, rw in enumerate(ref_sub):
+                    aligned_words.append({
+                        "word": rw,
+                        "start": round(seg_start + idx * step, 2),
+                        "end": round(seg_start + (idx + 1) * step, 2),
+                        "probability": 0.9,
+                    })
+
+        elif tag == "insert":
+            ref_sub = ref_words[j1:j2]
+            num_sub = len(ref_sub)
+            if num_sub > 0:
+                if i1 == 0:
+                    # Chèn ở đầu danh sách (trước từ đầu tiên): đảm bảo phụ đề có ngay từ 0.0s
+                    next_start = all_words[0]["start"]
+                    if next_start > 0.2:
+                        step = next_start / num_sub
+                        for idx, rw in enumerate(ref_sub):
+                            aligned_words.append({
+                                "word": rw,
+                                "start": round(idx * step, 2),
+                                "end": round((idx + 1) * step, 2),
+                                "probability": 0.95,
+                            })
+                    else:
+                        cur_t = 0.0
+                        for rw in ref_sub:
+                            aligned_words.append({
+                                "word": rw,
+                                "start": round(cur_t, 2),
+                                "end": round(cur_t + 0.25, 2),
+                                "probability": 0.95,
+                            })
+                            cur_t += 0.25
+
+                elif i1 >= len(all_words):
+                    # Chèn ở cuối danh sách
+                    prev_end = aligned_words[-1]["end"] if aligned_words else all_words[-1]["end"]
+                    cur_t = prev_end
+                    for rw in ref_sub:
+                        aligned_words.append({
+                            "word": rw,
+                            "start": round(cur_t, 2),
+                            "end": round(cur_t + 0.3, 2),
+                            "probability": 0.9,
+                        })
+                        cur_t += 0.3
+
+                else:
+                    # Chèn ở giữa hai từ
+                    prev_end = aligned_words[-1]["end"] if aligned_words else all_words[i1 - 1]["end"]
+                    next_start = all_words[i1]["start"]
+                    gap = next_start - prev_end
+                    if gap >= num_sub * 0.15:
+                        step = gap / num_sub
+                        for idx, rw in enumerate(ref_sub):
+                            aligned_words.append({
+                                "word": rw,
+                                "start": round(prev_end + idx * step, 2),
+                                "end": round(prev_end + (idx + 1) * step, 2),
+                                "probability": 0.9,
+                            })
+                    else:
+                        cur_t = prev_end
+                        for rw in ref_sub:
+                            aligned_words.append({
+                                "word": rw,
+                                "start": round(cur_t, 2),
+                                "end": round(cur_t + 0.2, 2),
+                                "probability": 0.85,
+                            })
+                            cur_t += 0.2
+
+        elif tag == "delete":
+            # Giữ lại các từ Whisper nhận diện ngoài kịch bản nếu kịch bản đã kết thúc
+            if j1 >= len(ref_words):
+                for idx in range(i1, i2):
+                    aligned_words.append(dict(all_words[idx]))
+
+    if not aligned_words:
         return segments
 
+    # Sắp xếp và đảm bảo tính liên tục của mốc thời gian
+    for idx in range(len(aligned_words)):
+        if idx > 0 and aligned_words[idx]["start"] < aligned_words[idx - 1]["start"]:
+            aligned_words[idx]["start"] = aligned_words[idx - 1]["end"]
+        if aligned_words[idx]["end"] <= aligned_words[idx]["start"]:
+            aligned_words[idx]["end"] = round(aligned_words[idx]["start"] + 0.2, 2)
+
     # Tự động chia nhỏ lại các câu thành các đoạn 4-9 từ chuẩn ngắn gọn
-    new_segments = resegment_words(valid_words, max_words=9, max_chars=46)
-    logger.info(f"✨ Đã đối chiếu và chia nhỏ thành {len(new_segments)} câu phụ đề chuẩn ngắn gọn ({len(ref_words)} từ).")
+    new_segments = resegment_words(aligned_words, max_words=9, max_chars=46)
+    logger.info(f"✨ Đã đối chiếu và chia nhỏ thành {len(new_segments)} câu phụ đề chuẩn ngắn gọn ({len(aligned_words)} từ).")
     return new_segments
 
 
@@ -267,7 +373,11 @@ def transcribe_video_audio(
         language=language if language != "auto" else None,
         word_timestamps=True,
         vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=400),
+        vad_parameters=dict(
+            threshold=0.3,
+            min_silence_duration_ms=400,
+            speech_pad_ms=400,
+        ),
         initial_prompt=prompt_snippet,
     )
 
@@ -434,6 +544,22 @@ def generate_ass_subtitles(
         start_time = seconds_to_ass_time(seg["start"])
         end_time = seconds_to_ass_time(seg["end"])
 
+        # Tính toán tọa độ vị trí riêng (customPositionY) nếu có, fallback về position_y chung
+        seg_pos_y = seg.get("customPositionY")
+        if seg_pos_y is None:
+            seg_pos_y = position_y
+        else:
+            try:
+                seg_pos_y = float(seg_pos_y)
+            except (ValueError, TypeError):
+                seg_pos_y = position_y
+
+        # Căn giữa theo bề ngang (video_w / 2) và theo tọa độ dọc tương ứng
+        x_coord = int(round(video_w / 2))
+        y_coord = int(round(seg_pos_y * video_h / 100))
+        # \an5: Căn giữa trung tâm (middle-center) cả ngang và dọc, khớp 100% với CSS translate(-50%, -50%)
+        pos_tag = f"{{\\an5\\pos({x_coord},{y_coord})}}"
+
         if words:
             karaoke_parts = []
             for i, w in enumerate(words):
@@ -455,7 +581,7 @@ def generate_ass_subtitles(
             text_line = seg.get("text", "")
 
         ass_content.append(
-            f"Dialogue: 0,{start_time},{end_time},KineticStyle,,0,0,0,,{text_line}"
+            f"Dialogue: 0,{start_time},{end_time},KineticStyle,,0,0,0,,{pos_tag}{text_line}"
         )
 
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)
@@ -470,13 +596,16 @@ def render_video_with_captions(
     video_path: Path,
     ass_path: Path,
     output_path: Path,
+    voiceover_path: Path | None = None,
+    voiceover_start_time: float = 0.0,
+    audio_clips: list[dict[str, Any]] | None = None,
     bgm_path: Path | None = None,
     bgm_volume: float = 0.25,
     fonts_dir: Path | None = None,
 ) -> Path:
     """
-    Sử dụng FFmpeg để ép cứng phụ đề ASS và hòa âm nhạc nền (BGM) thành video MP4 hoàn chỉnh.
-    Hỗ trợ tùy chọn thư mục font tùy biến (fontsdir).
+    Sử dụng FFmpeg để ép cứng phụ đề ASS, lồng giọng đọc (Voiceover) theo danh sách clip đã cắt và hòa âm nhạc nền (BGM).
+    Hỗ trợ tùy chọn thư mục font tùy biến (fontsdir), mốc bắt đầu voiceover_start_time và audio_clips (atrim + adelay).
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -487,8 +616,104 @@ def render_video_with_captions(
         escaped_fonts = str(fonts_dir.resolve()).replace("\\", "/").replace(":", "\\:")
         ass_filter_str = f"ass='{escaped_ass}':fontsdir='{escaped_fonts}'"
 
-    if bgm_path and bgm_path.exists():
-        # Hòa âm audio gốc + BGM
+    delay_ms = max(0, int(round(voiceover_start_time * 1000)))
+
+    # Xây dựng chuỗi lọc audio cho Voiceover (hỗ trợ cắt nhiều đoạn audio_clips)
+    if voiceover_path and voiceover_path.exists():
+        if audio_clips and len(audio_clips) > 0:
+            clip_filters = []
+            clip_labels = []
+            for i, c in enumerate(audio_clips):
+                c_start = max(0.0, float(c.get("start", 0.0)))
+                c_dur = max(0.1, float(c.get("duration", 1.0)))
+                c_source = max(0.0, float(c.get("sourceStart", c.get("source_start", 0.0))))
+                c_delay = int(round(c_start * 1000))
+                clip_filters.append(
+                    f"[1:a]atrim=start={c_source:.3f}:end={(c_source + c_dur):.3f},asetpts=PTS-STARTPTS,adelay={c_delay}|{c_delay}[ac_{i}]"
+                )
+                clip_labels.append(f"[ac_{i}]")
+
+            if len(audio_clips) > 1:
+                amix_filter = "".join(clip_labels) + f"amix=inputs={len(audio_clips)}:dropout_transition=0[v_delayed]"
+                audio_filter_chain = "; ".join(clip_filters) + "; " + amix_filter
+            else:
+                audio_filter_chain = f"{clip_filters[0]}; [ac_0]anull[v_delayed]"
+        elif delay_ms > 0:
+            audio_filter_chain = f"[1:a]adelay={delay_ms}|{delay_ms}[v_delayed]"
+        else:
+            audio_filter_chain = "[1:a]anull[v_delayed]"
+    else:
+        audio_filter_chain = ""
+
+    # Trường hợp 1: Có cả Voiceover VÀ BGM
+    if voiceover_path and voiceover_path.exists() and bgm_path and bgm_path.exists():
+        filter_complex = (
+            f"{audio_filter_chain}; "
+            f"[2:a]volume={bgm_volume:.2f}[bgm_low]; "
+            f"[v_delayed][bgm_low]amix=inputs=2:duration=first[a_mixed]; "
+            f"[0:v]{ass_filter_str}[v_sub]"
+        )
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(voiceover_path),
+            "-i",
+            str(bgm_path),
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[v_sub]",
+            "-map",
+            "[a_mixed]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "18",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+    # Trường hợp 2: Chỉ có Voiceover (thay thế âm thanh video gốc)
+    elif voiceover_path and voiceover_path.exists():
+        filter_complex = f"{audio_filter_chain}; [0:v]{ass_filter_str}[v_sub]"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(voiceover_path),
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[v_sub]",
+            "-map",
+            "[v_delayed]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "18",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+    # Trường hợp 3: Chỉ có BGM (hòa âm với tiếng video gốc nếu có)
+    elif bgm_path and bgm_path.exists():
         filter_complex = (
             f"[1:a]volume={bgm_volume:.2f}[bgm_low]; "
             f"[0:a][bgm_low]amix=inputs=2:duration=first[a_mixed]; "
@@ -521,8 +746,8 @@ def render_video_with_captions(
             "+faststart",
             str(output_path),
         ]
+    # Trường hợp 4: Giữ nguyên âm thanh video gốc (hoặc video không tiếng)
     else:
-        # Chỉ ép phụ đề ASS
         filter_complex = f"[0:v]{ass_filter_str}[v_sub]"
         cmd = [
             "ffmpeg",
@@ -558,3 +783,70 @@ def render_video_with_captions(
 
     logger.info(f"✅ Render thành công video: {output_path.name}")
     return output_path
+
+
+def trim_video_by_ranges(
+    video_path: Path,
+    keep_ranges: list[dict[str, float]],
+    output_path: Path,
+) -> Path:
+    """
+    Cắt gọt video chỉ giữ lại các khoảng keep_ranges, loại bỏ hoàn toàn khoảng lặng chết.
+    Đảm bảo A/V sync chính xác 100% bằng chuỗi filter trim & atrim kết hợp concat.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not keep_ranges:
+        import shutil
+        shutil.copyfile(video_path, output_path)
+        return output_path
+
+    n = len(keep_ranges)
+    filter_parts = []
+    concat_inputs = []
+
+    for i, r in enumerate(keep_ranges):
+        start = max(0.0, float(r["start"]))
+        end = float(r["end"])
+        filter_parts.append(
+            f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS[v{i}];"
+            f"[0:a]atrim=start={start:.3f}:end={end:.3f},asetpts=PTS-STARTPTS[a{i}];"
+        )
+        concat_inputs.append(f"[v{i}][a{i}]")
+
+    filter_complex = "".join(filter_parts) + "".join(concat_inputs) + f"concat=n={n}:v=1:a=1[outv][outa]"
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "[outv]",
+        "-map",
+        "[outa]",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "18",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+
+    logger.info(f"Đang cắt video ({n} đoạn) loại bỏ khoảng lặng: {output_path.name} …")
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        logger.error(f"FFmpeg trim video lỗi: {res.stderr}")
+        raise RuntimeError(f"FFmpeg trim video thất bại: {res.stderr}")
+
+    logger.info(f"✅ Cắt video thành công: {output_path.name}")
+    return output_path
+

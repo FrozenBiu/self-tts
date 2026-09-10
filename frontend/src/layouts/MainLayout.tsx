@@ -28,7 +28,7 @@ export function MainLayout() {
   };
 
   return (
-    <div className="text-on-surface font-body-md min-h-screen flex flex-col">
+    <div className="text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden">
       {/* Side Navigation (Phong cách Gemini, mượt mà, padding đồng nhất 100%) */}
       <nav
         className={cn(
@@ -156,8 +156,13 @@ export function MainLayout() {
       {/* Main Content Area (Tự động mở rộng vùng làm việc theo trạng thái sidebar) */}
       <main
         className={cn(
-          "flex-1 p-margin-mobile md:p-margin-desktop 2k:p-10 flex justify-center items-start min-h-[calc(100vh-80px)] overflow-y-auto transition-all duration-300 ease-in-out",
-          isCollapsed ? "md:ml-[72px]" : "md:ml-64 2k:ml-72",
+          "flex-1 flex justify-center items-start min-h-[calc(100vh-80px)] overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out box-border",
+          location.pathname === "/autocaption"
+            ? "p-2 sm:p-3 md:p-4"
+            : "p-margin-mobile md:p-margin-desktop 2k:p-10",
+          isCollapsed
+            ? "md:ml-[72px] md:w-[calc(100%-72px)]"
+            : "md:ml-64 2k:ml-72 md:w-[calc(100%-256px)] 2k:w-[calc(100%-288px)]",
         )}
       >
         <Outlet />

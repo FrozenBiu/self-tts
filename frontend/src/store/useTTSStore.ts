@@ -54,6 +54,8 @@ interface TTSState {
   selectedVoiceId: string | null;
   pinnedVoices: string[];
   projects: Project[];
+  pendingVoiceForVideo: AudioRecord | null;
+  setPendingVoiceForVideo: (record: AudioRecord | null) => void;
   setMode: (mode: "clone" | "design") => void;
   setInstruct: (instruct: string) => void;
   setNumStep: (num_step: number) => void;
@@ -101,6 +103,8 @@ export const useTTSStore = create<TTSState>((set, get) => {
   selectedVoiceId: null,
   pinnedVoices: JSON.parse(localStorage.getItem("tts_pinned_voices") || "[]"),
   projects: JSON.parse(localStorage.getItem("tts_projects") || "[]"),
+  pendingVoiceForVideo: null,
+  setPendingVoiceForVideo: (record) => set({ pendingVoiceForVideo: record }),
   addProject: (name, description) => {
     const newProject: Project = {
       id: Math.random().toString(36).substring(2, 9),
