@@ -15,10 +15,15 @@ import gc
 import re
 import logging
 from pathlib import Path
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
 import soundfile as sf
+# pyrefly: ignore [missing-import]
 import numpy as np
+# pyrefly: ignore [missing-import]
 import torch
+# pyrefly: ignore [missing-import]
 import librosa
 
 # pyrefly: ignore [missing-import]
@@ -408,6 +413,7 @@ def generate_audio(
     # Lưu ý: Tốc độ (Speed) đã được OmniVoice xử lý tự nhiên trực tiếp trong diffusion tokens,
     # không dùng librosa.effects.time_stretch để tránh méo pha (phase distortion/metallic reverb).
     if pitch != 0.0:
+        # pyrefly: ignore [missing-import]
         import librosa
         audio = librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=pitch)
 
@@ -415,6 +421,7 @@ def generate_audio(
 
     # Lưu file
     if audio_format == "mp3":
+        # pyrefly: ignore [missing-import]
         import torchaudio
 
         tensor_audio = torch.from_numpy(audio).unsqueeze(0)

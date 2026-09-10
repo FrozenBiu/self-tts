@@ -6,6 +6,7 @@ import Projects from "./pages/Projects";
 import ProjectDetail from "./pages/ProjectDetail";
 
 import CloningVoice from "./pages/CloningVoice";
+import AutoCaption from "./pages/AutoCaption";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
           <Route path="projects" element={<Projects />} />
           <Route path="projects/:id" element={<ProjectDetail />} />
           <Route path="cloning-voice" element={<CloningVoice />} />
+          <Route path="autocaption" element={<AutoCaption />} />
         </Route>
       </Routes>
     </BrowserRouter>
