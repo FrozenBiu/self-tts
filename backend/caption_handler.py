@@ -105,8 +105,8 @@ CLAUSE_ENDINGS = re.compile(r"[,;:\-–—]+['\"]?$")
 
 def resegment_words(
     all_words: list[dict[str, Any]],
-    max_words: int = 9,
-    max_chars: int = 46,
+    max_words: int = 7,
+    max_chars: int = 36,
     min_silence_split: float = 0.38,
 ) -> list[dict[str, Any]]:
     """
@@ -228,7 +228,7 @@ def align_words_with_reference(
                 "probability": 0.95,
             })
             cur_t += 0.3
-        return resegment_words(synthetic_words, max_words=9, max_chars=46)
+        return resegment_words(synthetic_words, max_words=7, max_chars=36)
 
     def clean_token(w: str) -> str:
         return re.sub(r"[^\w\s]", "", w.lower()).strip()
@@ -345,8 +345,8 @@ def align_words_with_reference(
         if aligned_words[idx]["end"] <= aligned_words[idx]["start"]:
             aligned_words[idx]["end"] = round(aligned_words[idx]["start"] + 0.2, 2)
 
-    # Tự động chia nhỏ lại các câu thành các đoạn 4-9 từ chuẩn ngắn gọn
-    new_segments = resegment_words(aligned_words, max_words=9, max_chars=46)
+    # Tự động chia nhỏ lại các câu thành các đoạn 4-7 từ chuẩn ngắn gọn (hiển thị trọn vẹn 1 hàng)
+    new_segments = resegment_words(aligned_words, max_words=7, max_chars=36)
     logger.info(f"✨ Đã đối chiếu và chia nhỏ thành {len(new_segments)} câu phụ đề chuẩn ngắn gọn ({len(aligned_words)} từ).")
     return new_segments
 
@@ -423,7 +423,7 @@ def transcribe_video_audio(
         for s in result_segments:
             all_words_flat.extend(s.get("words", []))
         if all_words_flat:
-            result_segments = resegment_words(all_words_flat, max_words=9, max_chars=46)
+            result_segments = resegment_words(all_words_flat, max_words=7, max_chars=36)
 
     logger.info(f"Nhận diện hoàn tất: {len(result_segments)} câu có phụ đề chi tiết.")
     return result_segments
@@ -529,6 +529,7 @@ def generate_ass_subtitles(
         "ScriptType: v4.00+",
         f"PlayResX: {video_w}",
         f"PlayResY: {video_h}",
+        "WrapStyle: 2",  # Cấm tuyệt đối libass tự động ngắt xuống 2 dòng, luôn ép trên 1 hàng duy nhất
         "ScaledBorderAndShadow: yes",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
@@ -560,6 +561,21 @@ def generate_ass_subtitles(
         # \an5: Căn giữa trung tâm (middle-center) cả ngang và dọc, khớp 100% với CSS translate(-50%, -50%)
         pos_tag = f"{{\\an5\\pos({x_coord},{y_coord})}}"
 
+        # Trích xuất văn bản thuần để đo độ dài câu
+        plain_text = seg.get("text", "")
+        if not plain_text and words:
+            plain_text = " ".join(w.get("word", "").strip() for w in words)
+
+        # Tính toán tự động co font size nếu câu dài, đảm bảo luôn vừa khít 1 hàng duy nhất (không rớt dòng, không tràn mép)
+        max_safe_w = video_w * 0.90
+        char_count = max(1, len(plain_text))
+        estimated_w = char_count * (ass_font_size * 0.60)
+        if estimated_w > max_safe_w:
+            line_font_size = max(16, int(round(max_safe_w / (char_count * 0.60))))
+            size_tag = f"{{\\fs{line_font_size}}}"
+        else:
+            size_tag = ""
+
         if words:
             karaoke_parts = []
             for i, w in enumerate(words):
@@ -581,7 +597,7 @@ def generate_ass_subtitles(
             text_line = seg.get("text", "")
 
         ass_content.append(
-            f"Dialogue: 0,{start_time},{end_time},KineticStyle,,0,0,0,,{pos_tag}{text_line}"
+            f"Dialogue: 0,{start_time},{end_time},KineticStyle,,0,0,0,,{pos_tag}{size_tag}{text_line}"
         )
 
     output_ass_path.parent.mkdir(parents=True, exist_ok=True)

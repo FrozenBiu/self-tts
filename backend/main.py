@@ -766,13 +766,13 @@ async def align_script_endpoint(request: AlignScriptRequest):
 
 class OptimizeChunksRequest(BaseModel):
     segments: list[dict[str, Any]]
-    max_words: int = 9
+    max_words: int = 7
 
 
 @app.post("/api/caption/optimize-chunks")
 async def optimize_chunks_endpoint(request: OptimizeChunksRequest):
     """
-    Tự động chia nhỏ lại các câu phụ đề quá dài thành các câu 4-9 từ chuẩn ngắn gọn (Shorts/Reels).
+    Tự động chia nhỏ lại các câu phụ đề quá dài thành các câu 4-7 từ chuẩn ngắn gọn (Shorts/Reels) hiển thị 1 hàng.
     """
     try:
         all_words = []

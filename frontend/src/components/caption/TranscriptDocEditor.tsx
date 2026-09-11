@@ -9,45 +9,42 @@ import {
   X,
   Edit2,
   Trash2,
-  Plus,
   ArrowRightLeft,
   Sparkles,
   Split,
-  ChevronDown,
   RotateCcw,
+  ArrowDownToLine,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type {
-  CaptionSegment,
-  WordTiming,
-} from "@/utils/silenceDetector";
-import {
-  batchFindAndReplace,
-} from "@/utils/silenceDetector";
+import type { CaptionSegment, WordTiming } from "@/utils/silenceDetector";
+import { batchFindAndReplace } from "@/utils/silenceDetector";
 import { toast } from "sonner";
 
 interface TranscriptDocEditorProps {
   segments: CaptionSegment[];
   currentTime: number;
-  isPlaying: boolean;
+  isPlaying?: boolean;
   onSeek: (time: number) => void;
   onUpdateSegments: (newSegments: CaptionSegment[]) => void;
   onOptimizeChunks?: () => void;
   isOptimizingChunks?: boolean;
   onRestoreSync?: () => void;
   hasRawSegments?: boolean;
+  onUpdateTimeline?: () => void;
 }
 
 export function TranscriptDocEditor({
   segments,
   currentTime,
-  isPlaying,
+  isPlaying: _isPlaying,
   onSeek,
   onUpdateSegments,
   onOptimizeChunks,
   isOptimizingChunks,
   onRestoreSync,
   hasRawSegments = false,
+  onUpdateTimeline,
 }: TranscriptDocEditorProps) {
   // Inline Word Editing State
   const [editingWord, setEditingWord] = useState<{
@@ -158,7 +155,8 @@ export function TranscriptDocEditor({
   // ─── Split & Delete Segment ───────────────────────────────────────────────
   const handleSplitAtWord = (segId: number, wordIdx: number) => {
     const seg = segments.find((s) => s.id === segId);
-    if (!seg || seg.words.length <= 1 || wordIdx >= seg.words.length - 1) return;
+    if (!seg || seg.words.length <= 1 || wordIdx >= seg.words.length - 1)
+      return;
 
     const firstWords = seg.words.slice(0, wordIdx + 1);
     const secondWords = seg.words.slice(wordIdx + 1);
@@ -192,6 +190,35 @@ export function TranscriptDocEditor({
     toast.success("Đã tách câu thành công!");
   };
 
+  const handleMergeWithNext = (segIdx: number) => {
+    if (segIdx < 0 || segIdx >= segments.length - 1) return;
+    const cur = segments[segIdx];
+    const nxt = segments[segIdx + 1];
+
+    const mergedWords = [...(cur.words || []), ...(nxt.words || [])];
+    const mergedText = `${cur.text.trim()} ${nxt.text.trim()}`;
+
+    const mergedSeg: CaptionSegment = {
+      id: cur.id,
+      start: cur.start,
+      end: Math.max(cur.end, nxt.end),
+      text: mergedText,
+      words: mergedWords,
+      customPositionY: cur.customPositionY,
+    };
+
+    const nextSegments = [
+      ...segments.slice(0, segIdx),
+      mergedSeg,
+      ...segments.slice(segIdx + 2),
+    ];
+
+    onUpdateSegments(nextSegments);
+    toast.success(
+      `Đã gộp đoạn #${segIdx + 1} và #${segIdx + 2} thành một câu!`,
+    );
+  };
+
   const handleDeleteSegment = (segId: number) => {
     const next = segments.filter((s) => s.id !== segId);
     onUpdateSegments(next);
@@ -209,7 +236,7 @@ export function TranscriptDocEditor({
       segments,
       searchQuery.trim(),
       replaceQuery.trim(),
-      matchCase
+      matchCase,
     );
     onUpdateSegments(updated);
     setShowFindModal(false);
@@ -221,20 +248,28 @@ export function TranscriptDocEditor({
       {/* ─── Header Toolbar ──────────────────────────────────────────────── */}
       <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-2 shrink-0">
         <div className="flex items-center gap-1.5">
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-variant/50 border border-white/10 text-[11px] font-semibold text-on-surface">
-            <User className="w-3 h-3 text-primary" />
-            <span>Speaker 1</span>
-          </div>
-          <span className="text-[10px] text-on-surface-variant font-mono">
-            ({segments.length} đoạn)
+          <span className="text-[12px] text-on-surface-variant font-mono">
+            {segments.length} đoạn
           </span>
         </div>
 
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {/* Nút Cập nhật Timeline Caption */}
+          {onUpdateTimeline && segments.length > 0 && (
+            <button
+              onClick={onUpdateTimeline}
+              className="flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 transition font-semibold shadow-xs"
+              title="Cập nhật và tính toán lại mốc thời gian phụ đề, chống lệch tiếng sau khi gộp/tách câu"
+            >
+              <Clock className="w-3 h-3 text-emerald-400" />
+              <span>Cập nhật Timeline</span>
+            </button>
+          )}
+
           {/* Nút Tìm & Thay Thế */}
           <button
             onClick={() => setShowFindModal(true)}
-            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-surface-variant/40 hover:bg-surface-variant border border-white/10 text-on-surface transition font-medium cursor-pointer"
+            className="flex items-center gap-1 text-[12px] px-2 py-1 rounded-md bg-surface-variant/40 hover:bg-surface-variant border border-white/10 text-on-surface transition font-medium cursor-pointer"
             title="Tìm kiếm và thay thế nhanh từ ngữ bị AI nhận diện sai"
           >
             <Search className="w-3 h-3 text-primary" />
@@ -246,7 +281,7 @@ export function TranscriptDocEditor({
             <button
               onClick={onOptimizeChunks}
               disabled={isOptimizingChunks}
-              className="flex items-center gap-1 text-[10px] text-primary hover:text-primary-fixed-dim px-2 py-1 rounded-md bg-primary/10 border border-primary/20 transition disabled:opacity-40 font-medium"
+              className="flex items-center gap-1 text-[12px] text-primary hover:text-primary-fixed-dim px-2 py-1 rounded-md bg-primary/10 border border-primary/20 transition disabled:opacity-40 font-medium"
               title="Tự động chia câu dài thành các câu 4-9 từ chuẩn ngắn gọn"
             >
               <Scissors className="w-3 h-3" />
@@ -258,7 +293,7 @@ export function TranscriptDocEditor({
           {hasRawSegments && onRestoreSync && (
             <button
               onClick={onRestoreSync}
-              className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-surface-variant/30 hover:bg-surface-variant/60 border border-white/10 text-on-surface-variant hover:text-on-surface transition font-medium cursor-pointer"
+              className="flex items-center gap-1 text-[12px] px-2 py-1 rounded-md bg-surface-variant/30 hover:bg-surface-variant/60 border border-white/10 text-on-surface-variant hover:text-on-surface transition font-medium cursor-pointer"
               title="Khôi phục lại toàn bộ mốc thời gian và nội dung phụ đề gốc ban đầu"
             >
               <RotateCcw className="w-3 h-3 text-amber-400" />
@@ -276,9 +311,12 @@ export function TranscriptDocEditor({
               <Sparkles className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-sm font-medium text-on-surface">Chưa có văn bản lời thoại</p>
+              <p className="text-sm font-medium text-on-surface">
+                Chưa có văn bản lời thoại
+              </p>
               <p className="text-xs text-on-surface-variant mt-1 max-w-xs">
-                Nhấn vào nút "Tạo Phụ Đề AI" phía trên để chuyển hóa giọng nói video thành văn bản tương tác dạng Descript
+                Nhấn vào nút "Tạo Phụ Đề AI" phía trên để chuyển hóa giọng nói
+                video thành văn bản tương tác dạng Descript
               </p>
             </div>
           </div>
@@ -295,7 +333,7 @@ export function TranscriptDocEditor({
                   "p-2.5 rounded-xl border transition-all duration-200 group/seg relative",
                   isSegActive
                     ? "bg-primary/10 border-primary/40 shadow-sm ring-1 ring-primary/20"
-                    : "bg-surface-variant/15 border-white/5 hover:border-white/15"
+                    : "bg-surface-variant/15 border-white/5 hover:border-white/15",
                 )}
               >
                 {/* Paragraph Meta Header */}
@@ -316,6 +354,15 @@ export function TranscriptDocEditor({
 
                   {/* Actions on Segment */}
                   <div className="flex items-center gap-1 opacity-0 group-hover/seg:opacity-100 transition-opacity">
+                    {segIdx < segments.length - 1 && (
+                      <button
+                        onClick={() => handleMergeWithNext(segIdx)}
+                        className="p-1 hover:text-amber-400 transition rounded text-on-surface-variant"
+                        title="Gộp với câu kế tiếp"
+                      >
+                        <ArrowDownToLine className="w-3 h-3" />
+                      </button>
+                    )}
                     <button
                       onClick={() =>
                         isEditingThisSeg
@@ -432,7 +479,7 @@ export function TranscriptDocEditor({
                               "cursor-pointer rounded px-1 -mx-0.5 py-0.5 transition-all duration-100 select-none group/word relative inline-block",
                               isWordActive
                                 ? "bg-primary text-on-primary font-bold shadow-sm scale-105"
-                                : "text-on-surface hover:bg-surface-variant/70 hover:text-primary"
+                                : "text-on-surface hover:bg-surface-variant/70 hover:text-primary",
                             )}
                             title={`Mốc: ${w.start}s - ${w.end}s (Nhấp đúp để sửa từ)`}
                           >
@@ -468,88 +515,88 @@ export function TranscriptDocEditor({
         typeof document !== "undefined" &&
         createPortal(
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 select-none">
-          <div className="bg-surface border border-white/15 rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-primary/20 text-primary">
-                  <Search className="w-5 h-5" />
+            <div className="bg-surface border border-white/15 rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-primary/20 text-primary">
+                    <Search className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-on-surface">
+                      Tìm kiếm & Thay thế
+                    </h3>
+                    <p className="text-[11px] text-on-surface-variant">
+                      Sửa hàng loạt từ khóa AI nghe nhầm trên toàn bài
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-on-surface">
-                    Tìm kiếm & Thay thế
-                  </h3>
-                  <p className="text-[11px] text-on-surface-variant">
-                    Sửa hàng loạt từ khóa AI nghe nhầm trên toàn bài
-                  </p>
+                <button
+                  onClick={() => setShowFindModal(false)}
+                  className="p-1 text-on-surface-variant hover:text-on-surface transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-on-surface-variant">
+                    Từ cần tìm:
+                  </label>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Ví dụ: Tech Lab..."
+                    className="w-full px-3 py-2 rounded-xl bg-surface-variant/50 border border-white/10 text-xs text-on-surface focus:outline-none focus:border-primary/50"
+                    autoFocus
+                  />
                 </div>
-              </div>
-              <button
-                onClick={() => setShowFindModal(false)}
-                className="p-1 text-on-surface-variant hover:text-on-surface transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-on-surface-variant">
-                  Từ cần tìm:
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-on-surface-variant">
+                    Thay thế bằng:
+                  </label>
+                  <input
+                    type="text"
+                    value={replaceQuery}
+                    onChange={(e) => setReplaceQuery(e.target.value)}
+                    placeholder="Ví dụ: Technical Lab..."
+                    className="w-full px-3 py-2 rounded-xl bg-surface-variant/50 border border-white/10 text-xs text-on-surface focus:outline-none focus:border-primary/50"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 text-xs text-on-surface-variant cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={matchCase}
+                    onChange={(e) => setMatchCase(e.target.checked)}
+                    className="rounded border-white/20 text-primary focus:ring-primary"
+                  />
+                  <span>Phân biệt chữ hoa / chữ thường</span>
                 </label>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Ví dụ: Tech Lab..."
-                  className="w-full px-3 py-2 rounded-xl bg-surface-variant/50 border border-white/10 text-xs text-on-surface focus:outline-none focus:border-primary/50"
-                  autoFocus
-                />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-on-surface-variant">
-                  Thay thế bằng:
-                </label>
-                <input
-                  type="text"
-                  value={replaceQuery}
-                  onChange={(e) => setReplaceQuery(e.target.value)}
-                  placeholder="Ví dụ: Technical Lab..."
-                  className="w-full px-3 py-2 rounded-xl bg-surface-variant/50 border border-white/10 text-xs text-on-surface focus:outline-none focus:border-primary/50"
-                />
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+                <button
+                  onClick={() => setShowFindModal(false)}
+                  className="px-3.5 py-2 rounded-xl text-xs text-on-surface-variant hover:text-on-surface transition"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={handleExecuteReplace}
+                  disabled={!searchQuery.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary hover:bg-primary-fixed-dim text-on-primary font-semibold text-xs transition shadow-lg disabled:opacity-40"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  <span>Thay thế tất cả</span>
+                </button>
               </div>
-
-              <label className="flex items-center gap-2 text-xs text-on-surface-variant cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  checked={matchCase}
-                  onChange={(e) => setMatchCase(e.target.checked)}
-                  className="rounded border-white/20 text-primary focus:ring-primary"
-                />
-                <span>Phân biệt chữ hoa / chữ thường</span>
-              </label>
             </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
-              <button
-                onClick={() => setShowFindModal(false)}
-                className="px-3.5 py-2 rounded-xl text-xs text-on-surface-variant hover:text-on-surface transition"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleExecuteReplace}
-                disabled={!searchQuery.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary hover:bg-primary-fixed-dim text-on-primary font-semibold text-xs transition shadow-lg disabled:opacity-40"
-              >
-                <ArrowRightLeft className="w-3.5 h-3.5" />
-                <span>Thay thế tất cả</span>
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

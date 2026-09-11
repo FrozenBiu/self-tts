@@ -19,6 +19,7 @@ export default function App() {
           <Route path="projects/:id" element={<ProjectDetail />} />
           <Route path="cloning-voice" element={<CloningVoice />} />
           <Route path="autocaption" element={<AutoCaption />} />
+          <Route path="caption" element={<AutoCaption />} />
         </Route>
       </Routes>
     </BrowserRouter>
