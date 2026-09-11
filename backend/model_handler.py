@@ -49,6 +49,7 @@ MAX_CHUNK_CHARS = int(os.getenv("MAX_CHUNK_CHARS", "450"))
 ENABLE_WARMUP_ONCE = os.getenv("ENABLE_WARMUP_ONCE", "false").lower() in ("true", "1", "yes")
 ENABLE_EMPTY_CACHE = os.getenv("ENABLE_EMPTY_CACHE", "false").lower() in ("true", "1", "yes")
 CUDNN_BENCHMARK = os.getenv("CUDNN_BENCHMARK", "true").lower() in ("true", "1", "yes")
+AUDIO_MP3_BACKEND = os.getenv("AUDIO_MP3_BACKEND", "auto").lower().strip()
 
 _has_warmed_up = False
 
@@ -244,6 +245,106 @@ def sanitize_instruct(instruct: str | None) -> str | None:
     return ", ".join(cleaned_tags)
 
 
+def save_audio_file(
+    output_path: Path | str,
+    audio: np.ndarray,
+    sample_rate: int = SAMPLE_RATE,
+    audio_format: str = "mp3",
+) -> None:
+    """
+    Xuất file âm thanh ra đĩa với cơ chế fallback đa tầng (soundfile <-> torchaudio <-> pydub).
+
+    Thứ tự ưu tiên được quyết định theo biến môi trường AUDIO_MP3_BACKEND:
+      - 'auto'       : Thử 'soundfile' trước -> fallback 'torchaudio' -> fallback 'pydub'
+      - 'soundfile'  : Thử 'soundfile' trước -> fallback 'torchaudio' -> fallback 'pydub'
+      - 'torchaudio' : Thử 'torchaudio' trước -> fallback 'soundfile' -> fallback 'pydub'
+
+    Đảm bảo luôn xuất được file âm thanh (đặc biệt là MP3) ngay cả khi môi trường
+    không hỗ trợ TorchCodec hoặc gặp lỗi backend torchaudio trên Windows/CPU.
+    """
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fmt = (audio_format or "mp3").lower().strip()
+
+    def _via_soundfile() -> None:
+        sf_format = "MP3" if fmt == "mp3" else None
+        sf.write(str(path), audio, sample_rate, format=sf_format)
+
+    def _via_torchaudio() -> None:
+        # pyrefly: ignore [missing-import]
+        import torchaudio
+
+        tensor_audio = torch.from_numpy(audio)
+        if tensor_audio.ndim == 1:
+            tensor_audio = tensor_audio.unsqueeze(0)
+        torchaudio.save(str(path), tensor_audio, sample_rate, format=fmt)
+
+    def _via_pydub() -> None:
+        # pyrefly: ignore [missing-import]
+        import pydub
+
+        audio_int16 = (np.clip(audio, -1.0, 1.0) * 32767.0).astype(np.int16)
+        channels = 1 if audio.ndim == 1 else audio.shape[1]
+        segment = pydub.AudioSegment(
+            audio_int16.tobytes(),
+            frame_rate=sample_rate,
+            sample_width=2,
+            channels=channels,
+        )
+        segment.export(str(path), format=fmt)
+
+    # Nếu là định dạng không phải MP3 (ví dụ WAV, FLAC, OGG...)
+    if fmt != "mp3":
+        try:
+            _via_soundfile()
+            return
+        except Exception as err:
+            logger.warning(f"⚠️ Xuất định dạng '{fmt}' bằng soundfile thất bại ({err}), thử torchaudio...")
+            try:
+                _via_torchaudio()
+                return
+            except Exception as terr:
+                logger.warning(f"⚠️ Fallback torchaudio cũng thất bại ({terr}), thử pydub...")
+                _via_pydub()
+                return
+
+    # Đối với MP3: Quyết định thứ tự backend dựa theo cấu hình AUDIO_MP3_BACKEND
+    backend_pref = os.getenv("AUDIO_MP3_BACKEND", AUDIO_MP3_BACKEND).lower().strip()
+    if backend_pref == "torchaudio":
+        backends = [
+            ("torchaudio", _via_torchaudio),
+            ("soundfile", _via_soundfile),
+            ("pydub", _via_pydub),
+        ]
+    else:  # "auto", "soundfile", hoặc mặc định
+        backends = [
+            ("soundfile", _via_soundfile),
+            ("torchaudio", _via_torchaudio),
+            ("pydub", _via_pydub),
+        ]
+
+    errors: list[str] = []
+    for idx, (name, exporter) in enumerate(backends):
+        try:
+            exporter()
+            if idx > 0:
+                logger.info(f"✅ Fallback thành công! Đã xuất file MP3 bằng '{name}': {path.name}")
+            return
+        except Exception as err:
+            err_msg = f"{name}: {type(err).__name__} ({err})"
+            errors.append(err_msg)
+            if idx < len(backends) - 1:
+                next_backend = backends[idx + 1][0]
+                logger.warning(
+                    f"⚠️ Xuất MP3 bằng '{name}' không thành công [{type(err).__name__}: {err}]. "
+                    f"Tự động chuyển fallback sang '{next_backend}'..."
+                )
+
+    raise RuntimeError(
+        f"Không thể xuất file MP3 '{path.name}' sau khi thử tất cả backends: {'; '.join(errors)}"
+    )
+
+
 def generate_audio(
     text: str,
     output_path: Path,
@@ -417,17 +518,13 @@ def generate_audio(
         import librosa
         audio = librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=pitch)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Lưu file
-    if audio_format == "mp3":
-        # pyrefly: ignore [missing-import]
-        import torchaudio
-
-        tensor_audio = torch.from_numpy(audio).unsqueeze(0)
-        torchaudio.save(str(output_path), tensor_audio, SAMPLE_RATE, format="mp3")
-    else:
-        sf.write(str(output_path), audio, SAMPLE_RATE)
+    # Lưu file âm thanh với cơ chế fallback tự động theo AUDIO_MP3_BACKEND
+    save_audio_file(
+        output_path=output_path,
+        audio=audio,
+        sample_rate=SAMPLE_RATE,
+        audio_format=audio_format,
+    )
 
     logger.info(
         f"💾 Đã lưu: {output_path.name} | {len(audio) / SAMPLE_RATE:.2f}s | {SAMPLE_RATE}Hz | Format: {audio_format}"
