@@ -1,10 +1,11 @@
-import { useTTSStore, type ScriptBlock } from "../store/useTTSStore";
+import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
 import { toast } from "sonner";
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { downloadAudioFile } from "../utils/download";
 import { ScriptBlockItem } from "../components/project/ScriptBlockItem";
 import { PauseSettingsModal } from "../components/PauseSettingsModal";
+import { PronunciationModal } from "../components/PronunciationModal";
 import {
   Layers,
   Plus,
@@ -31,6 +32,9 @@ export default function Studio() {
     audioUrl,
     voices,
     selectedVoiceId,
+    enhanceAudio,
+    setEnhanceAudio,
+    pronunciationWords,
     setText,
     setMode,
     setInstruct,
@@ -87,6 +91,8 @@ export default function Studio() {
   const [saveExistingMode, setSaveExistingMode] = useState<"append" | "replace">("append");
   // Modal Thiết lập ngắt nghỉ
   const [isPauseSettingsOpen, setIsPauseSettingsOpen] = useState(false);
+  // Modal Cách đọc (Từ điển phát âm)
+  const [isPronunciationModalOpen, setIsPronunciationModalOpen] = useState(false);
 
   // ── Lưu cấu hình mô hình vào localStorage ─────────────────────────────────
   const [configSaved, setConfigSaved] = useState(false);
@@ -97,15 +103,16 @@ export default function Studio() {
       speed,
       pitch,
       audioFormat: useTTSStore.getState().audioFormat,
+      enhanceAudio,
     };
     localStorage.setItem("tts_model_config", JSON.stringify(config));
     setConfigSaved(true);
     toast.success(
-      `Đã lưu cấu hình: CFG ${cfg_value.toFixed(1)} · Speed ${speed.toFixed(2)}x · Pitch ${pitch >= 0 ? "+" : ""}${pitch.toFixed(1)}`,
+      `Đã lưu cấu hình: CFG ${cfg_value.toFixed(1)} · Speed ${speed.toFixed(2)}x · Pitch ${pitch >= 0 ? "+" : ""}${pitch.toFixed(1)} · Bộ lọc: ${enhanceAudio ? "Bật" : "Tắt"}`,
       { duration: 3000 },
     );
     setTimeout(() => setConfigSaved(false), 2000);
-  }, [cfg_value, speed, pitch]);
+  }, [cfg_value, speed, pitch, enhanceAudio]);
 
   const NON_VERBAL_SYMBOLS = [
     { tag: "[laughter]", label: "Cười", emoji: "😄" },
@@ -416,16 +423,22 @@ export default function Studio() {
     handleUpdateStudioBlock(blockId, { status: "rendering", error: undefined });
 
     try {
+      const processedBlockText = applyPronunciationDictionary(
+        target.text.trim(),
+        pronunciationWords,
+      );
+
       const res = await fetch("http://localhost:8000/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: target.text.trim(),
+          text: processedBlockText,
           mode: "clone",
           voice_id: target.voiceId || null,
           speed: target.speed || 1.0,
           pitch: target.pitch || 0.0,
           format: useTTSStore.getState().audioFormat || "mp3",
+          enhance_audio: enhanceAudio,
         }),
       });
 
@@ -647,7 +660,9 @@ export default function Studio() {
     }, 1000);
 
     try {
-      const sentences = splitIntoSentencesWithPause(text);
+      // Áp dụng từ điển cách đọc (Pronunciation Lexicon) trước khi phân tích câu
+      const processedText = applyPronunciationDictionary(text, pronunciationWords);
+      const sentences = splitIntoSentencesWithPause(processedText);
 
       if (sentences.length <= 1) {
         // Chỉ có 1 câu: sinh 1 request nhanh trực tiếp
@@ -655,7 +670,7 @@ export default function Studio() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            text,
+            text: sentences[0]?.text || processedText,
             mode,
             instruct: mode === "design" ? instruct : null,
             cfg_value,
@@ -665,6 +680,7 @@ export default function Studio() {
             speed,
             pitch,
             format: useTTSStore.getState().audioFormat,
+            enhance_audio: enhanceAudio,
           }),
         });
 
@@ -753,6 +769,7 @@ export default function Studio() {
                 speed,
                 pitch,
                 format: useTTSStore.getState().audioFormat || "mp3",
+                enhance_audio: enhanceAudio,
               }),
             });
 
@@ -1248,6 +1265,24 @@ export default function Studio() {
                     </span>
                   </button>
 
+                  {/* Nút Cách đọc (Từ điển phát âm theo phong cách Vbee) */}
+                  <button
+                    type="button"
+                    onClick={() => setIsPronunciationModalOpen(true)}
+                    className="px-2.5 2k:px-3 py-1 rounded-lg text-[11px] 2k:text-xs font-label-caps bg-surface-dim hover:bg-primary/20 text-on-surface hover:text-primary border border-white/10 hover:border-primary/30 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 group"
+                    title="Từ điển phát âm: Thiết lập cách đọc từ viết tắt, từ nước ngoài, số, v.v."
+                  >
+                    <span className="material-symbols-outlined text-primary text-[17px] group-hover:scale-110 transition-transform">
+                      record_voice_over
+                    </span>
+                    <span className="font-semibold">Cách đọc</span>
+                    {pronunciationWords.filter((w) => w.enabled).length > 0 && (
+                      <span className="bg-primary/10 text-primary px-1.5 py-0.2 rounded text-[10px] font-mono-data border border-primary/20">
+                        {pronunciationWords.filter((w) => w.enabled).length}
+                      </span>
+                    )}
+                  </button>
+
                   <div className="h-4 w-[1px] bg-white/10 hidden sm:block"></div>
 
                   {/* Non-verbal symbols toolbar */}
@@ -1660,6 +1695,41 @@ export default function Studio() {
                   hơn, giảm để trầm hơn.
                 </p>
               </div>
+
+              {/* Studio Hi-Fi Vocal Enhancement */}
+              <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-surface-dim border border-white/10 hover:border-primary/30 transition-all shadow-inner">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="enhance-audio-toggle"
+                    className="font-label-caps text-xs 2k:text-sm text-on-surface flex items-center gap-2 cursor-pointer font-medium"
+                  >
+                    <span className="material-symbols-outlined text-primary text-[18px]">
+                      auto_fix_high
+                    </span>
+                    Bộ lọc Studio Hi-Fi (44.1kHz)
+                  </label>
+                  <button
+                    type="button"
+                    role="switch"
+                    id="enhance-audio-toggle"
+                    aria-checked={enhanceAudio}
+                    onClick={() => setEnhanceAudio(!enhanceAudio)}
+                    className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      enhanceAudio ? "bg-primary" : "bg-white/15"
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-md ring-0 transition duration-200 ease-in-out ${
+                        enhanceAudio ? "translate-x-5 bg-black" : "translate-x-0 bg-on-surface-variant"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <p className="text-[11px] text-on-surface-variant/70 leading-relaxed">
+                  Cắt ù (Low-cut 75Hz), tăng độ sáng & âm xát (Air 9kHz), nén động học phát thanh và chuẩn hóa âm lượng.
+                </p>
+              </div>
             </div>
 
             {/* Action Button */}
@@ -1909,6 +1979,12 @@ export default function Studio() {
       <PauseSettingsModal
         isOpen={isPauseSettingsOpen}
         onClose={() => setIsPauseSettingsOpen(false)}
+      />
+
+      {/* Modal Cách đọc (Từ điển phát âm theo phong cách Vbee) */}
+      <PronunciationModal
+        isOpen={isPronunciationModalOpen}
+        onClose={() => setIsPronunciationModalOpen(false)}
       />
     </div>
   );

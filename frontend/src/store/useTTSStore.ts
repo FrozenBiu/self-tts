@@ -70,6 +70,78 @@ export const DEFAULT_PAUSE_SETTINGS: PauseSettings = {
   newline: 0.6,
 };
 
+export interface PronunciationWord {
+  id: string;
+  original: string;
+  pronunciation: string;
+  enabled: boolean;
+  createdAt: number;
+}
+
+export const DEFAULT_PRONUNCIATION_WORDS: PronunciationWord[] = [
+  {
+    id: "sample-1",
+    original: "năm hai một bốn",
+    pronunciation: "năm, hai, một, bốn",
+    enabled: true,
+    createdAt: 1710000000000,
+  },
+  {
+    id: "sample-2",
+    original: "TP.HCM",
+    pronunciation: "Thành phố Hồ Chí Minh",
+    enabled: true,
+    createdAt: 1710000000001,
+  },
+  {
+    id: "sample-3",
+    original: "AI",
+    pronunciation: "Ây Ai",
+    enabled: true,
+    createdAt: 1710000000002,
+  },
+  {
+    id: "sample-4",
+    original: "ChatGPT",
+    pronunciation: "Chát Gờ Pê Tê",
+    enabled: true,
+    createdAt: 1710000000003,
+  },
+];
+
+export function applyPronunciationDictionary(text: string, words: PronunciationWord[]): string {
+  if (!text || !words || words.length === 0) return text;
+  
+  const activeWords = words
+    .filter((w) => w.enabled && w.original.trim())
+    .sort((a, b) => b.original.length - a.original.length);
+
+  let result = text;
+  for (const item of activeWords) {
+    const orig = item.original.trim();
+    const pron = item.pronunciation.trim();
+    if (!orig || !pron) continue;
+
+    const escaped = orig.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Nếu từ gốc là chữ hoa hoàn toàn và ngắn (ví dụ: "AI", "USD", "TP.HCM", "CSKH"),
+    // thì BẮT BUỘC phân biệt hoa thường để tránh thay nhầm từ tiếng Việt thường như "ai", "ai đó"!
+    const isAllUpperShort = orig === orig.toUpperCase() && orig.length <= 5 && /[A-Z]/.test(orig);
+    const flags = isAllUpperShort ? "gu" : "giu";
+
+    // Sử dụng Unicode Word Boundary: trước và sau từ không được là chữ cái hoặc số (\p{L}\p{N})
+    // Giúp tránh nuốt từ như "hai" -> "h + Ây Ai" khi có từ khóa "AI"
+    try {
+      const regex = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, flags);
+      result = result.replace(regex, pron);
+    } catch {
+      // Fallback nếu môi trường không hỗ trợ lookbehind
+      const regex = new RegExp(`\\b${escaped}\\b`, flags.replace("u", ""));
+      result = result.replace(regex, pron);
+    }
+  }
+  return result;
+}
+
 interface TTSState {
   pauseSettings: PauseSettings;
   setPauseSettings: (settings: Partial<PauseSettings>) => void;
@@ -86,7 +158,14 @@ interface TTSState {
   isLoading: boolean;
   audioUrl: string | null;
   audioFormat: string;
+  enhanceAudio: boolean;
+  setEnhanceAudio: (enhanceAudio: boolean) => void;
   history: AudioRecord[];
+  pronunciationWords: PronunciationWord[];
+  addPronunciationWord: (word: { original: string; pronunciation: string }) => void;
+  updatePronunciationWord: (id: string, updates: Partial<PronunciationWord>) => void;
+  deletePronunciationWord: (id: string) => void;
+  togglePronunciationWord: (id: string) => void;
   voices: Voice[];
   selectedVoiceId: string | null;
   pinnedVoices: string[];
@@ -168,7 +247,51 @@ export const useTTSStore = create<TTSState>((set, get) => {
   isLoading: false,
   audioUrl: null,
   audioFormat: typeof _savedConfig.audioFormat === "string" ? _savedConfig.audioFormat : "mp3",
+  enhanceAudio: typeof _savedConfig.enhanceAudio === "boolean" ? _savedConfig.enhanceAudio : true,
   history: JSON.parse(localStorage.getItem("tts_history") || "[]"),
+  pronunciationWords: (() => {
+    try {
+      const saved = localStorage.getItem("tts_pronunciation_dict");
+      return saved ? JSON.parse(saved) : DEFAULT_PRONUNCIATION_WORDS;
+    } catch {
+      return DEFAULT_PRONUNCIATION_WORDS;
+    }
+  })(),
+  addPronunciationWord: (word) =>
+    set((state) => {
+      const newWord: PronunciationWord = {
+        id: Math.random().toString(36).substring(2, 9),
+        original: word.original.trim(),
+        pronunciation: word.pronunciation.trim(),
+        enabled: true,
+        createdAt: Date.now(),
+      };
+      const updated = [newWord, ...state.pronunciationWords];
+      localStorage.setItem("tts_pronunciation_dict", JSON.stringify(updated));
+      return { pronunciationWords: updated };
+    }),
+  updatePronunciationWord: (id, updates) =>
+    set((state) => {
+      const updated = state.pronunciationWords.map((w) =>
+        w.id === id ? { ...w, ...updates } : w,
+      );
+      localStorage.setItem("tts_pronunciation_dict", JSON.stringify(updated));
+      return { pronunciationWords: updated };
+    }),
+  deletePronunciationWord: (id) =>
+    set((state) => {
+      const updated = state.pronunciationWords.filter((w) => w.id !== id);
+      localStorage.setItem("tts_pronunciation_dict", JSON.stringify(updated));
+      return { pronunciationWords: updated };
+    }),
+  togglePronunciationWord: (id) =>
+    set((state) => {
+      const updated = state.pronunciationWords.map((w) =>
+        w.id === id ? { ...w, enabled: !w.enabled } : w,
+      );
+      localStorage.setItem("tts_pronunciation_dict", JSON.stringify(updated));
+      return { pronunciationWords: updated };
+    }),
   voices: [],
   selectedVoiceId: null,
   pinnedVoices: JSON.parse(localStorage.getItem("tts_pinned_voices") || "[]"),
@@ -256,6 +379,15 @@ export const useTTSStore = create<TTSState>((set, get) => {
   setIsLoading: (isLoading) => set({ isLoading }),
   setAudioUrl: (audioUrl) => set({ audioUrl }),
   setAudioFormat: (audioFormat) => set({ audioFormat }),
+  setEnhanceAudio: (enhanceAudio) => {
+    try {
+      const cur = JSON.parse(localStorage.getItem("tts_model_config") || "{}");
+      localStorage.setItem("tts_model_config", JSON.stringify({ ...cur, enhanceAudio }));
+    } catch {
+      // ignore
+    }
+    set({ enhanceAudio });
+  },
   addHistory: (record) =>
     set((state) => {
       const newRecord: AudioRecord = {

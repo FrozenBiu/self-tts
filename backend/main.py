@@ -179,6 +179,10 @@ class TTSRequest(BaseModel):
         default="mp3",
         description="Định dạng âm thanh đầu ra: 'mp3' hoặc 'wav'.",
     )
+    enhance_audio: bool = Field(
+        default=True,
+        description="Áp dụng Studio Audio Mastering Pipeline (EQ, Compressor, Normalization 44.1kHz).",
+    )
 
 
 class TTSResponse(BaseModel):
@@ -599,7 +603,7 @@ async def text_to_speech(
     # Tạo Cache Key
     cache_str = (
         f"{request.text}_{request.mode}_{request.instruct}_{request.voice_id}_"
-        f"{request.cfg_value}_{steps}_{request.seed}_{request.speed}_{request.pitch}_{request.format}"
+        f"{request.cfg_value}_{steps}_{request.seed}_{request.speed}_{request.pitch}_{request.format}_{request.enhance_audio}"
     )
     file_hash = hashlib.md5(cache_str.encode("utf-8")).hexdigest()
 
@@ -697,6 +701,7 @@ async def text_to_speech(
             speed=request.speed,
             pitch=request.pitch,
             audio_format=request.format,
+            enhance_audio=request.enhance_audio,
         )
     except Exception as exc:
         logger.exception("❌ Lỗi khi tổng hợp giọng nói")
@@ -931,12 +936,16 @@ async def stitch_audio(
     out_path = OUTPUTS_DIR / out_filename
 
     try:
+        from pydub.effects import normalize as pydub_normalize
+        combined = pydub_normalize(combined, headroom=1.0)
+        combined = combined.set_frame_rate(44100)
+
         combined.export(
             str(out_path),
             format=export_format,
-            bitrate="192k" if export_format == "mp3" else None,
+            bitrate="320k" if export_format == "mp3" else None,
         )
-        logger.info(f"🎉 Ghép nối master audio thành công: {out_filename} (Thời lượng: {combined.duration_seconds:.2f}s)")
+        logger.info(f"🎉 Ghép nối master audio thành công (Studio 44.1kHz 320k): {out_filename} (Thời lượng: {combined.duration_seconds:.2f}s)")
     except Exception as e:
         logger.error(f"Lỗi xuất file master audio: {e}")
         raise HTTPException(status_code=500, detail=f"Lỗi xuất audio: {str(e)}")
