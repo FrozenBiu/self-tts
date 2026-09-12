@@ -34,6 +34,8 @@ export default function Studio() {
     selectedVoiceId,
     enhanceAudio,
     setEnhanceAudio,
+    engine,
+    setEngine,
     pronunciationWords,
     setText,
     setMode,
@@ -439,6 +441,7 @@ export default function Studio() {
           pitch: target.pitch || 0.0,
           format: useTTSStore.getState().audioFormat || "mp3",
           enhance_audio: enhanceAudio,
+          engine: engine || "omnivoice",
         }),
       });
 
@@ -681,6 +684,7 @@ export default function Studio() {
             pitch,
             format: useTTSStore.getState().audioFormat,
             enhance_audio: enhanceAudio,
+            engine: engine || "omnivoice",
           }),
         });
 
@@ -726,6 +730,7 @@ export default function Studio() {
           seed,
           speed,
           pitch,
+          engine: engine || "omnivoice",
         });
 
         toast.success("Thành công! Đã tạo âm thanh mới.", { id: toastId });
@@ -770,6 +775,7 @@ export default function Studio() {
                 pitch,
                 format: useTTSStore.getState().audioFormat || "mp3",
                 enhance_audio: enhanceAudio,
+                engine: engine || "omnivoice",
               }),
             });
 
@@ -839,6 +845,7 @@ export default function Studio() {
               seed,
               speed,
               pitch,
+              engine: engine || "omnivoice",
             });
 
             toast.success(`Hoàn thành tổng hợp ${sentences.length} phân đoạn câu!`, { id: toastId });
@@ -883,6 +890,65 @@ export default function Studio() {
             {/* Background decorative gradient */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[100px] pointer-events-none mix-blend-screen"></div>
 
+            {/* Engine Selection Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4 z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 border border-primary/30 flex items-center justify-center text-primary shadow-sm">
+                  <span className="material-symbols-outlined text-[20px]">
+                    {engine === "f5tts" ? "bolt" : "graphic_eq"}
+                  </span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-label-caps text-xs font-semibold text-white">Mô hình AI (TTS Engine)</span>
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">
+                      Multi-Engine
+                    </span>
+                    <span className="hidden sm:inline text-[10px] text-emerald-400/90 font-medium">
+                      • Tự động tối ưu VRAM
+                    </span>
+                  </div>
+                  <p className="text-xs text-on-surface-variant/70 mt-0.5">
+                    {engine === "f5tts"
+                      ? "F5-TTS ViVoice: Flow Matching DiT chuyên tiếng Việt 1000h, ngữ điệu tự nhiên mượt mà"
+                      : "OmniVoice 24kHz: Đa năng, hỗ trợ sao chép giọng mẫu và tự thiết kế đặc tính giọng nói"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="inline-flex bg-surface-dim border border-white/10 rounded-xl p-1 shadow-inner gap-1 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setEngine("omnivoice")}
+                  className={`px-3 py-1.5 rounded-lg font-label-caps text-xs flex items-center gap-1.5 transition-all duration-200 ${
+                    engine === "omnivoice"
+                      ? "bg-primary text-black font-semibold shadow-md"
+                      : "text-on-surface-variant hover:text-white hover:bg-white/5"
+                  }`}
+                  title="OmniVoice: Hỗ trợ Voice Cloning và Voice Design"
+                >
+                  <span className="material-symbols-outlined text-[16px]">graphic_eq</span>
+                  OmniVoice 24kHz
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEngine("f5tts")}
+                  className={`px-3 py-1.5 rounded-lg font-label-caps text-xs flex items-center gap-1.5 transition-all duration-200 ${
+                    engine === "f5tts"
+                      ? "bg-gradient-to-r from-amber-400 to-orange-500 text-black font-semibold shadow-md"
+                      : "text-on-surface-variant hover:text-white hover:bg-white/5"
+                  }`}
+                  title="F5-TTS ViVoice: Flow Matching chuyên sâu tiếng Việt (1000h)"
+                >
+                  <span className="material-symbols-outlined text-[16px]">bolt</span>
+                  F5-TTS ViVoice
+                  <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-black/25 text-black uppercase leading-none">
+                    VN
+                  </span>
+                </button>
+              </div>
+            </div>
+
             {/* Mode Switcher Tabs */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-5 2k:pb-6 z-10">
               <div>
@@ -893,7 +959,9 @@ export default function Studio() {
                   Chế độ sinh giọng
                 </label>
                 <p className="text-xs 2k:text-sm text-on-surface-variant/60 mt-0.5">
-                  Chọn giữa sao chép giọng mẫu hoặc tự thiết kế thuộc tính giọng nói
+                  {engine === "f5tts"
+                    ? "F5-TTS tối ưu chuyên sâu cho Voice Cloning. Để tự thiết kế giọng, vui lòng chọn OmniVoice."
+                    : "Chọn giữa sao chép giọng mẫu hoặc tự thiết kế thuộc tính giọng nói"}
                 </p>
               </div>
 
@@ -913,6 +981,10 @@ export default function Studio() {
                 <button
                   type="button"
                   onClick={() => {
+                    if (engine === "f5tts") {
+                      toast.info("Chế độ Voice Design yêu cầu OmniVoice. Đang tự động chuyển sang OmniVoice...");
+                      setEngine("omnivoice");
+                    }
                     setMode("design");
                     if (!instruct || instruct.includes("gentle")) {
                       updateDesignInstruct(designGender, designAge, designPitch, designStyle);
@@ -923,6 +995,7 @@ export default function Studio() {
                       ? "bg-primary text-black font-semibold shadow-md"
                       : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
                   }`}
+                  title={engine === "f5tts" ? "Chuyển sang OmniVoice để tự thiết kế giọng" : undefined}
                 >
                   <span className="material-symbols-outlined text-[16px] 2k:text-[18px]">auto_fix_high</span>
                   Voice Design

@@ -16,6 +16,7 @@ export interface AudioRecord {
   seed?: number;
   speed?: number;
   pitch?: number;
+  engine?: "omnivoice" | "f5tts";
 }
 
 export interface ScriptBlock {
@@ -160,6 +161,8 @@ interface TTSState {
   audioFormat: string;
   enhanceAudio: boolean;
   setEnhanceAudio: (enhanceAudio: boolean) => void;
+  engine: "omnivoice" | "f5tts";
+  setEngine: (engine: "omnivoice" | "f5tts") => void;
   history: AudioRecord[];
   pronunciationWords: PronunciationWord[];
   addPronunciationWord: (word: { original: string; pronunciation: string }) => void;
@@ -248,6 +251,14 @@ export const useTTSStore = create<TTSState>((set, get) => {
   audioUrl: null,
   audioFormat: typeof _savedConfig.audioFormat === "string" ? _savedConfig.audioFormat : "mp3",
   enhanceAudio: typeof _savedConfig.enhanceAudio === "boolean" ? _savedConfig.enhanceAudio : true,
+  engine: (localStorage.getItem("tts_selected_engine") as "omnivoice" | "f5tts") || "omnivoice",
+  setEngine: (engine) =>
+    set((state) => {
+      localStorage.setItem("tts_selected_engine", engine);
+      // F5-TTS chỉ hỗ trợ chế độ clone giọng, nếu đang ở design thì tự động chuyển sang clone
+      const newMode = engine === "f5tts" && state.mode === "design" ? "clone" : state.mode;
+      return { engine, mode: newMode };
+    }),
   history: JSON.parse(localStorage.getItem("tts_history") || "[]"),
   pronunciationWords: (() => {
     try {

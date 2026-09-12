@@ -181,7 +181,11 @@ class TTSRequest(BaseModel):
     )
     enhance_audio: bool = Field(
         default=True,
-        description="Áp dụng Studio Audio Mastering Pipeline (EQ, Compressor, Normalization 44.1kHz).",
+        description="Bật bộ lọc Studio Hi-Fi (Low-cut, EQ, Soft Compressor, 44.1kHz).",
+    )
+    engine: str = Field(
+        default="omnivoice",
+        description="Engine tổng hợp: 'omnivoice' hoặc 'f5tts'.",
     )
 
 
@@ -581,6 +585,35 @@ def _cleanup_old_files(keep_latest: int = 200) -> None:
         logger.info(f"🗑️ Đã xóa file cũ: {old_file.name}")
 
 
+@app.get(
+    "/api/tts/engines",
+    summary="Danh sách các mô hình TTS được hỗ trợ",
+    tags=["TTS"],
+)
+async def get_tts_engines():
+    """Trả về danh sách các engine TTS khả dụng trong hệ thống."""
+    return [
+        {
+            "id": "omnivoice",
+            "name": "OmniVoice 24kHz",
+            "tagline": "Đa năng & Tự thiết kế giọng",
+            "provider": "k2-fsa",
+            "sample_rate": 24000,
+            "supported_modes": ["clone", "design", "auto"],
+            "description": "Mô hình đa năng hỗ trợ cả sao chép giọng mẫu và tự thiết kế độ tuổi, giới tính, phong cách qua prompt.",
+        },
+        {
+            "id": "f5tts",
+            "name": "F5-TTS Tiếng Việt (ViVoice)",
+            "tagline": "Flow Matching DiT siêu tốc & Ngữ điệu tự nhiên",
+            "provider": "SWivid / ViVoice 1000h",
+            "sample_rate": 24000,
+            "supported_modes": ["clone"],
+            "description": "Mô hình Flow Matching DiT chuyên sâu tiếng Việt, huấn luyện trên 1000h dữ liệu, tái tạo ngữ điệu mượt mà.",
+        },
+    ]
+
+
 @app.post(
     "/api/tts",
     response_model=TTSResponse,
@@ -602,7 +635,7 @@ async def text_to_speech(
 
     # Tạo Cache Key
     cache_str = (
-        f"{request.text}_{request.mode}_{request.instruct}_{request.voice_id}_"
+f"{request.engine}_{request.text}_{request.mode}_{request.instruct}_{request.voice_id}_"
         f"{request.cfg_value}_{steps}_{request.seed}_{request.speed}_{request.pitch}_{request.format}_{request.enhance_audio}"
     )
     file_hash = hashlib.md5(cache_str.encode("utf-8")).hexdigest()
@@ -687,22 +720,99 @@ async def text_to_speech(
                         break
 
     try:
-        generate_audio(
-            text=request.text,
-            output_path=output_path,
-            mode=request.mode,
-            voice_clone_prompt=voice_clone_prompt,
-            ref_audio=ref_audio,
-            ref_text=ref_text,
-            instruct=request.instruct,
-            cfg_value=request.cfg_value,
-            num_step=steps,
-            seed=request.seed,
-            speed=request.speed,
-            pitch=request.pitch,
-            audio_format=request.format,
-            enhance_audio=request.enhance_audio,
-        )
+        if request.engine == "f5tts":
+            # ── [F5-TTS Engine] ──────────────────────────────────────────
+            # Giải phóng OmniVoice khỏi VRAM để tránh chiếm dụng GPU
+            from model_handler import unload_model as unload_omnivoice, save_audio_file
+            unload_omnivoice()
+
+            final_ref_audio = ref_audio
+            final_ref_text = ref_text
+
+            # Nếu có voice_id, chủ động tìm wav và prompt_text tương ứng
+            if request.voice_id:
+                all_v = []
+                voices_json = PRESETS_DIR / "voices.json"
+                if voices_json.exists():
+                    with open(voices_json, "r", encoding="utf-8") as f:
+                        all_v.extend(json.load(f))
+                if CUSTOM_VOICES_JSON.exists():
+                    with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
+                        all_v.extend(json.load(f))
+
+                for v in all_v:
+                    if v.get("id") == request.voice_id:
+                        if not final_ref_text:
+                            final_ref_text = v.get("prompt_text")
+                        if not final_ref_audio:
+                            cand_path = (
+                                CUSTOM_VOICES_DIR / f"{v['id']}.wav"
+                                if request.voice_id.startswith("custom_")
+                                else PRESETS_DIR / f"{v['id']}.wav"
+                            )
+                            if cand_path.exists():
+                                final_ref_audio = str(cand_path)
+                        break
+
+            if not final_ref_audio:
+                # Dùng file preset mẫu nếu không chỉ định
+                candidate_presets = [PRESETS_DIR / "male_1.wav", PRESETS_DIR / "female_1.wav"]
+                for p_cand in candidate_presets:
+                    if p_cand.exists():
+                        final_ref_audio = str(p_cand)
+                        break
+
+            if not final_ref_audio:
+                raise HTTPException(
+                    status_code=400,
+                    detail="F5-TTS yêu cầu một giọng mẫu (voice_id hoặc audio tham chiếu) để thực hiện Voice Cloning.",
+                )
+
+            from f5_handler import generate_f5_audio
+            audio_np, final_sample_rate = generate_f5_audio(
+                text=request.text,
+                ref_audio=str(final_ref_audio),
+                ref_text=final_ref_text or "",
+                speed=request.speed,
+                nfe_step=steps or 32,
+                cfg_strength=request.cfg_value,
+                enhance_audio=request.enhance_audio,
+            )
+
+            save_audio_file(
+                output_path=output_path,
+                audio=audio_np,
+                sample_rate=final_sample_rate,
+                pitch=request.pitch,
+                format=request.format,
+            )
+        else:
+            # ── [OmniVoice Engine] ────────────────────────────────────────
+            # Giải phóng F5-TTS khỏi VRAM nếu đang load
+            try:
+                from f5_handler import unload_f5_model
+                unload_f5_model()
+            except Exception:
+                pass
+
+            generate_audio(
+                text=request.text,
+                output_path=output_path,
+                mode=request.mode,
+                voice_clone_prompt=voice_clone_prompt,
+                ref_audio=ref_audio,
+                ref_text=ref_text,
+                instruct=request.instruct,
+                cfg_value=request.cfg_value,
+                num_step=steps,
+                seed=request.seed,
+                speed=request.speed,
+                pitch=request.pitch,
+                audio_format=request.format,
+                enhance_audio=request.enhance_audio,
+            )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("❌ Lỗi khi tổng hợp giọng nói")
         raise HTTPException(
