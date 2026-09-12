@@ -1,96 +1,170 @@
+import { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const NAV_ITEMS = [
+  { path: "/", label: "Phòng thu", icon: "graphic_eq" },
+  { path: "/library", label: "Thư viện", icon: "folder_open" },
+  { path: "/cloning-voice", label: "Tạo giọng mới", icon: "record_voice_over" },
+  { path: "/autocaption", label: "Auto Caption", icon: "subtitles" },
+  { path: "/projects", label: "Dự án", icon: "folder_shared" },
+];
 
 export function MainLayout() {
   const location = useLocation();
 
+  // Lưu trạng thái thu nhỏ sidebar vào localStorage để giữ trải nghiệm người dùng
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    return localStorage.getItem("sidebar_collapsed") === "true";
+  });
+
+  const toggleSidebar = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("sidebar_collapsed", String(next));
+      return next;
+    });
+  };
+
   return (
-    <div className="text-on-surface font-body-md min-h-screen flex flex-col">
-      {/* Side Navigation */}
-      <nav className="hidden md:flex fixed left-0 h-full w-64 2k:w-72 bg-surface/60 backdrop-blur-xl border-r border-white/10 flex-col py-6 2k:py-8 z-40">
-        <div className="px-6 mb-8 flex flex-col items-center">
-          <div className="w-16 h-16 2k:w-20 2k:h-20 rounded-full bg-surface-variant flex items-center justify-center mb-4 border border-white/10 shadow-lg">
-            <span className="material-symbols-outlined text-3xl 2k:text-4xl text-primary">
-              graphic_eq
-            </span>
-          </div>
-          <h2 className="font-headline-lg text-headline-lg-mobile font-bold text-on-surface 2k:text-xl">
-            OmniVoice
-          </h2>
-          <p className="font-mono-data text-mono-data text-on-surface-variant 2k:text-sm">
-            Phòng thu Pro v2.4
-          </p>
+    <div className="text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden">
+      {/* Side Navigation (Phong cách Gemini, mượt mà, padding đồng nhất 100%) */}
+      <nav
+        className={cn(
+          "hidden md:flex fixed left-0 top-0 h-full bg-surface/80 backdrop-blur-2xl border-r border-white/10 flex-col py-5 px-3.5 z-40 transition-all duration-300 ease-in-out select-none",
+          isCollapsed ? "w-[72px]" : "w-64 2k:w-72",
+        )}
+      >
+        {/* Header & Branding Area - Chiều cao cố định h-11, không nhảy vị trí */}
+        <div className="h-11 shrink-0 flex items-center mb-5 transition-all duration-300 w-full overflow-hidden">
+          {isCollapsed ? (
+            /* Khi đóng: Nút logo w-11 h-11 căn thẳng hàng tuyệt đối với icon menu bên dưới */
+            <button
+              onClick={toggleSidebar}
+              className="w-11 h-11 rounded-2xl flex items-center justify-center relative group cursor-pointer shrink-0 transition-all duration-200"
+              aria-label="Mở thanh bên"
+            >
+              {/* Trạng thái bình thường: Logo OmniVoice */}
+              <div className="w-11 h-11 rounded-2xl bg-surface-variant flex items-center justify-center text-primary border border-white/10 shadow-sm transition-all duration-200 group-hover:opacity-0 group-hover:scale-90 absolute inset-0">
+                <span className="material-symbols-outlined text-2xl text-primary">
+                  graphic_eq
+                </span>
+              </div>
+
+              {/* Trạng thái Hover: Biến thành icon PanelLeftOpen chuẩn Gemini */}
+              <div className="w-11 h-11 rounded-2xl bg-surface-variant/90 hover:bg-surface-variant flex items-center justify-center text-on-surface border border-white/20 shadow-md transition-all duration-200 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 absolute inset-0">
+                <PanelLeftOpen className="w-5 h-5 text-primary" />
+              </div>
+
+              {/* Tooltip đen chuẩn Gemini: Mở thanh bên */}
+              <div className="absolute left-full ml-3 px-3 py-1.5 bg-black/95 text-white text-xs font-medium rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 whitespace-nowrap z-50">
+                Mở thanh bên
+              </div>
+            </button>
+          ) : (
+            /* Khi mở: Hộp logo w-11 h-11 giữ nguyên tọa độ X không xê dịch 1px */
+            <div className="w-full flex items-center justify-between">
+              <Link
+                to="/"
+                className="flex items-center gap-3 group overflow-hidden"
+              >
+                <div className="w-11 h-11 rounded-2xl bg-surface-variant flex items-center justify-center border border-white/10 shadow-sm text-primary transition-transform duration-200 group-hover:border-primary/40 group-hover:scale-105 shrink-0">
+                  <span className="material-symbols-outlined text-2xl text-primary">
+                    graphic_eq
+                  </span>
+                </div>
+                <div className="flex flex-col overflow-hidden whitespace-nowrap">
+                  <h2 className="font-headline-lg text-lg font-bold text-on-surface leading-tight tracking-tight">
+                    OmniVoice
+                  </h2>
+                  <p className="text-[11px] text-on-surface-variant font-mono-data">
+                    Phòng thu Pro v2.4
+                  </p>
+                </div>
+              </Link>
+
+              {/* Nút đóng sidebar [<] kèm tooltip Gemini */}
+              <button
+                onClick={toggleSidebar}
+                className="w-9 h-9 rounded-xl hover:bg-surface-variant/60 flex items-center justify-center text-on-surface-variant hover:text-on-surface border border-white/10 hover:border-white/20 transition-all duration-200 relative group cursor-pointer shrink-0"
+                aria-label="Đóng thanh bên"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+                <div className="absolute left-full ml-3 px-3 py-1.5 bg-black/95 text-white text-xs font-medium rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 whitespace-nowrap z-50">
+                  Đóng thanh bên
+                </div>
+              </button>
+            </div>
+          )}
         </div>
-        <ul className="flex-1 px-4 2k:px-6 space-y-2 2k:space-y-3">
-          <li>
-            <Link
-              to="/"
-              className={cn(
-                "flex items-center gap-3 px-4 py-3 2k:py-3.5 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps 2k:text-md",
-                location.pathname === "/"
-                  ? "text-primary border-r-2 border-primary bg-primary/5 font-semibold"
-                  : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
-              )}
-            >
-              <span className="material-symbols-outlined 2k:text-3xl">
-                graphic_eq
-              </span>
-              Phòng thu
-            </Link>
-          </li>
-          <li>
-            <Link
-              to="/library"
-              className={cn(
-                "flex items-center gap-3 px-4 py-3 2k:py-3.5 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps 2k:text-md",
-                location.pathname === "/library"
-                  ? "text-primary border-r-2 border-primary bg-primary/5 font-semibold"
-                  : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
-              )}
-            >
-              <span className="material-symbols-outlined 2k:text-3xl">
-                folder_open
-              </span>
-              Thư viện
-            </Link>
-          </li>
-          <li>
-            <Link
-              to="/cloning-voice"
-              className={cn(
-                "flex items-center gap-3 px-4 py-3 2k:py-3.5 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps 2k:text-md",
-                location.pathname === "/cloning-voice"
-                  ? "text-primary border-r-2 border-primary bg-primary/5 font-semibold"
-                  : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
-              )}
-            >
-              <span className="material-symbols-outlined 2k:text-3xl">
-                record_voice_over
-              </span>
-              Tạo giọng mới
-            </Link>
-          </li>
-          <li>
-            <Link
-              to="/projects"
-              className={cn(
-                "flex items-center gap-3 px-4 py-3 2k:py-3.5 rounded-lg transition-all duration-300 ease-in-out font-label-caps text-label-caps 2k:text-md",
-                location.pathname === "/projects"
-                  ? "text-primary border-r-2 border-primary bg-primary/5 font-semibold"
-                  : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface",
-              )}
-            >
-              <span className="material-symbols-outlined 2k:text-3xl">
-                folder_shared
-              </span>
-              Dự án
-            </Link>
-          </li>
+
+        {/* Navigation Items - Thẳng hàng hoàn toàn với Logo ở trên, padding bất biến */}
+        <ul className="flex-1 space-y-2 transition-all duration-300 w-full">
+          {NAV_ITEMS.map((item) => {
+            const isActive = location.pathname === item.path;
+            return (
+              <li key={item.path} className="w-full">
+                <Link
+                  to={item.path}
+                  className={cn(
+                    "flex items-center h-11 rounded-xl transition-all duration-200 font-label-caps text-label-caps group relative w-full overflow-hidden",
+                    isActive
+                      ? "text-primary bg-primary/15 border border-primary/30 font-semibold shadow-sm"
+                      : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface border border-transparent",
+                  )}
+                >
+                  {/* Hộp icon cố định w-11 h-11 căn thẳng hàng 100% với Logo */}
+                  <div className="w-11 h-11 flex items-center justify-center shrink-0">
+                    <span
+                      className={cn(
+                        "material-symbols-outlined transition-transform duration-200 group-hover:scale-110 shrink-0 text-2xl",
+                        isActive
+                          ? "text-primary"
+                          : "text-on-surface-variant group-hover:text-on-surface",
+                      )}
+                    >
+                      {item.icon}
+                    </span>
+                  </div>
+
+                  {/* Chữ nhãn của menu lướt trượt êm mượt */}
+                  <span
+                    className={cn(
+                      "whitespace-nowrap transition-all duration-300 ease-in-out overflow-hidden ml-1",
+                      isCollapsed
+                        ? "max-w-0 opacity-0 -translate-x-3 pointer-events-none"
+                        : "max-w-[150px] opacity-100 translate-x-0",
+                    )}
+                  >
+                    {item.label}
+                  </span>
+
+                  {/* Tooltip đen chuẩn Gemini khi ở chế độ thu nhỏ sidebar */}
+                  {isCollapsed && (
+                    <div className="absolute left-full ml-3 px-3 py-1.5 bg-black/95 text-white text-xs font-medium rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 whitespace-nowrap z-50">
+                      {item.label}
+                    </div>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       </nav>
 
-      {/* Main Content Area */}
-      <main className="flex-1 md:ml-64 2k:ml-72 p-margin-mobile md:p-margin-desktop 2k:p-10 flex justify-center items-start min-h-[calc(100vh-80px)] overflow-y-auto">
+      {/* Main Content Area (Tự động mở rộng vùng làm việc theo trạng thái sidebar) */}
+      <main
+        className={cn(
+          "flex-1 flex justify-center items-start min-h-[calc(100vh-80px)] overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out box-border",
+          location.pathname === "/autocaption"
+            ? "p-2 sm:p-3 md:p-4"
+            : "p-margin-mobile md:p-margin-desktop 2k:p-10",
+          isCollapsed
+            ? "md:ml-[72px] md:w-[calc(100%-72px)]"
+            : "md:ml-64 2k:ml-72 md:w-[calc(100%-256px)] 2k:w-[calc(100%-288px)]",
+        )}
+      >
         <Outlet />
       </main>
 
@@ -141,6 +215,21 @@ export function MainLayout() {
             </span>
             <span className="text-[10px] font-label-caps">Cloning Voice</span>
             {location.pathname === "/cloning-voice" && (
+              <div className="absolute top-0 w-8 h-1 bg-primary rounded-b-full"></div>
+            )}
+          </Link>
+          <Link
+            to="/autocaption"
+            className={cn(
+              "flex flex-col items-center justify-center w-full h-full relative transition-colors",
+              location.pathname === "/autocaption"
+                ? "text-primary"
+                : "text-on-surface-variant hover:text-on-surface",
+            )}
+          >
+            <span className="material-symbols-outlined mb-1">subtitles</span>
+            <span className="text-[10px] font-label-caps">Auto Caption</span>
+            {location.pathname === "/autocaption" && (
               <div className="absolute top-0 w-8 h-1 bg-primary rounded-b-full"></div>
             )}
           </Link>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTTSStore, type AudioRecord } from "../store/useTTSStore";
 import { toast } from "sonner";
 import { downloadAudioFile } from "../utils/download";
@@ -10,8 +11,15 @@ export function AudioRecordItem({
   record: AudioRecord;
   removeHistory: (id: string) => void;
 }) {
-  const { projects, updateRecordProject } = useTTSStore();
+  const navigate = useNavigate();
+  const { projects, updateRecordProject, setPendingVoiceForVideo } = useTTSStore();
   const [isExpanded, setIsExpanded] = useState(false);
+
+  const handleEditVideo = () => {
+    setPendingVoiceForVideo(record);
+    toast.success("Đã chọn giọng đọc! Đang chuyển sang Video Studio...");
+    navigate("/autocaption");
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(record.text);
@@ -116,6 +124,16 @@ export function AudioRecordItem({
               </option>
             ))}
           </select>
+          <button
+            onClick={handleEditVideo}
+            className="h-10 px-3.5 flex items-center gap-1.5 rounded-lg bg-primary/15 text-primary hover:bg-primary hover:text-black font-semibold text-xs border border-primary/30 transition-all shadow-sm group"
+            title="Làm video với giọng đọc này trong Auto Caption Studio"
+          >
+            <span className="material-symbols-outlined text-[18px] group-hover:rotate-6 transition-transform">
+              movie_edit
+            </span>
+            <span className="font-label-caps">Làm Video</span>
+          </button>
           <button
             onClick={handleDownload}
             className="w-10 h-10 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-white/10 hover:text-primary transition-colors"

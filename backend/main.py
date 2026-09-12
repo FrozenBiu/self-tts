@@ -14,6 +14,8 @@ import logging
 import uuid
 import hashlib
 import shutil
+import subprocess
+from typing import Any
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -31,6 +33,15 @@ from model_handler import (
     VoiceClonePrompt,
     SAMPLE_RATE,
 )
+from caption_handler import (
+    extract_audio,
+    transcribe_video_audio,
+    align_words_with_reference,
+    resegment_words,
+    generate_ass_subtitles,
+    render_video_with_captions,
+    trim_video_by_ranges,
+)
 
 # ─── Environment & Logging ──────────────────────────────────────────────────
 load_dotenv()
@@ -47,6 +58,8 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).parent
 OUTPUTS_DIR = BASE_DIR / "outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
+CAPTIONS_DIR = OUTPUTS_DIR / "captions"
+CAPTIONS_DIR.mkdir(exist_ok=True)
 PRESETS_DIR = BASE_DIR / "presets"
 PRESETS_DIR.mkdir(exist_ok=True)
 CUSTOM_VOICES_DIR = PRESETS_DIR / "custom"
@@ -717,3 +730,449 @@ async def delete_audio(filename: str):
             raise HTTPException(status_code=500, detail="Không thể xóa file")
 
     return {"message": "File không tồn tại hoặc đã bị xóa trước đó"}
+
+
+# ─── Auto Caption & Video Editing Endpoints ─────────────────────────────────
+
+class ExportCaptionRequest(BaseModel):
+    session_id: str
+    segments: list[dict[str, Any]]
+    style_config: dict[str, Any] = Field(default_factory=dict)
+    has_voiceover: bool = False
+    voiceover_start_time: float = 0.0
+    audio_clips: list[dict[str, Any]] = Field(default_factory=list)
+    has_bgm: bool = False
+    bgm_volume: float = 0.25
+
+
+class AlignScriptRequest(BaseModel):
+    segments: list[dict[str, Any]]
+    reference_script: str
+
+
+@app.post("/api/caption/align-script")
+async def align_script_endpoint(request: AlignScriptRequest):
+    """
+    So khớp danh sách segment hiện tại với kịch bản đối chiếu người dùng cung cấp.
+    Giúp sửa toàn bộ lỗi nghe nhầm / chính tả tức thì trong <0.1s mà không cần chạy lại Whisper.
+    """
+    try:
+        aligned_segments = align_words_with_reference(request.segments, request.reference_script)
+        return {"segments": aligned_segments}
+    except Exception as exc:
+        logger.error(f"Lỗi khi so khớp kịch bản: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Không thể so khớp kịch bản: {str(exc)}") from exc
+
+
+class OptimizeChunksRequest(BaseModel):
+    segments: list[dict[str, Any]]
+    max_words: int = 7
+
+
+@app.post("/api/caption/optimize-chunks")
+async def optimize_chunks_endpoint(request: OptimizeChunksRequest):
+    """
+    Tự động chia nhỏ lại các câu phụ đề quá dài thành các câu 4-7 từ chuẩn ngắn gọn (Shorts/Reels) hiển thị 1 hàng.
+    """
+    try:
+        all_words = []
+        for s in request.segments:
+            all_words.extend(s.get("words", []))
+        new_segments = resegment_words(all_words, max_words=request.max_words)
+        return {"segments": new_segments}
+    except Exception as exc:
+        logger.error(f"Lỗi khi chia nhỏ câu phụ đề: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Không thể chia nhỏ câu: {str(exc)}") from exc
+
+
+@app.post("/api/caption/transcribe")
+async def transcribe_video(
+    video: UploadFile = File(...),
+    language: str = Form("vi"),
+    model_size: str = Form("base"),
+    reference_script: str | None = Form(None),
+):
+    """
+    Tải lên file video MP4/MOV/WebM, tách âm thanh và chạy Faster-Whisper
+    để lấy word-level timestamps. Hỗ trợ reference_script để chuẩn hóa chính tả đối chiếu.
+    """
+    session_id = uuid.uuid4().hex[:12]
+    session_dir = CAPTIONS_DIR / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    video_suffix = Path(video.filename).suffix if video.filename else ".mp4"
+    if not video_suffix:
+        video_suffix = ".mp4"
+    video_path = session_dir / f"video_raw{video_suffix}"
+    audio_path = session_dir / "audio.wav"
+
+    try:
+        # Lưu file video
+        with open(video_path, "wb") as buffer:
+            shutil.copyfileobj(video.file, buffer)
+
+        # 1. Trích xuất âm thanh từ video
+        extract_audio(video_path, audio_path)
+
+        # 2. Bóc tách phụ đề chi tiết từng từ (có đối chiếu kịch bản nếu có)
+        segments = transcribe_video_audio(
+            audio_path,
+            language=language,
+            model_size=model_size,
+            reference_script=reference_script,
+        )
+
+        # 3. Lưu lại bản sao phụ đề mốc gốc để khôi phục bất cứ lúc nào
+        raw_json_path = session_dir / "subtitles_raw.json"
+        with open(raw_json_path, "w", encoding="utf-8") as f:
+            json.dump(segments, f, ensure_ascii=False, indent=2)
+
+        return {
+            "session_id": session_id,
+            "video_url": f"http://localhost:8000/outputs/captions/{session_id}/video_raw{video_suffix}",
+            "filename": video.filename,
+            "segments": segments,
+        }
+    except Exception as exc:
+        logger.error(f"Lỗi khi xử lý video transcribe: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Không thể xử lý video: {str(exc)}"
+        ) from exc
+
+
+@app.post("/api/caption/upload-bgm")
+async def upload_bgm(
+    bgm: UploadFile = File(...),
+    session_id: str = Form(...),
+):
+    """Tải lên file nhạc nền (BGM) cho session video hiện tại."""
+    session_dir = CAPTIONS_DIR / session_id
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="Session không tồn tại")
+
+    bgm_suffix = Path(bgm.filename).suffix if bgm.filename else ".mp3"
+    bgm_path = session_dir / f"bgm{bgm_suffix}"
+
+    try:
+        with open(bgm_path, "wb") as buffer:
+            shutil.copyfileobj(bgm.file, buffer)
+
+        return {
+            "session_id": session_id,
+            "bgm_url": f"http://localhost:8000/outputs/captions/{session_id}/bgm{bgm_suffix}",
+            "bgm_filename": bgm.filename,
+        }
+    except Exception as exc:
+        logger.error(f"Lỗi khi lưu file BGM: {exc}")
+        raise HTTPException(status_code=500, detail=f"Không thể tải lên BGM: {str(exc)}") from exc
+
+
+@app.post("/api/caption/attach-voiceover")
+async def attach_voiceover(
+    session_id: str = Form(...),
+    voice_audio: UploadFile | None = File(None),
+    voice_url: str | None = Form(None),
+    reference_script: str | None = Form(None),
+    auto_transcribe: bool = Form(True),
+):
+    """
+    Gắn file giọng đọc (Voiceover) từ Thư viện / Phòng thu hoặc tải từ máy vào session video.
+    Tự động bóc tách phụ đề lời thoại từ file giọng đọc này nếu auto_transcribe=True.
+    """
+    session_dir = CAPTIONS_DIR / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    voice_path = session_dir / "voiceover.wav"
+
+    try:
+        if voice_audio:
+            suffix = Path(voice_audio.filename).suffix if voice_audio.filename else ".wav"
+            temp_path = session_dir / f"voice_raw{suffix}"
+            with open(temp_path, "wb") as buffer:
+                shutil.copyfileobj(voice_audio.file, buffer)
+
+            convert_cmd = [
+                "ffmpeg", "-y", "-i", str(temp_path),
+                "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+                str(voice_path),
+            ]
+            subprocess.run(convert_cmd, capture_output=True, check=True)
+            if temp_path != voice_path and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
+        elif voice_url:
+            parsed_filename = voice_url.split("/")[-1].split("?")[0]
+            local_src = OUTPUTS_DIR / parsed_filename
+            if not local_src.exists():
+                found_files = list(OUTPUTS_DIR.glob(f"**/{parsed_filename}"))
+                if found_files:
+                    local_src = found_files[0]
+
+            if local_src.exists():
+                convert_cmd = [
+                    "ffmpeg", "-y", "-i", str(local_src),
+                    "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+                    str(voice_path),
+                ]
+                subprocess.run(convert_cmd, capture_output=True, check=True)
+            elif "localhost" in voice_url or "127.0.0.1" in voice_url:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"File âm thanh '{parsed_filename}' không tìm thấy trên server. Hãy tạo giọng đọc mới trong Studio hoặc tải lên file âm thanh từ máy tính.",
+                )
+            else:
+                import httpx
+                temp_dl = session_dir / "temp_dl_voice"
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(voice_url, timeout=30.0)
+                    resp.raise_for_status()
+                    with open(temp_dl, "wb") as f:
+                        f.write(resp.content)
+                convert_cmd = [
+                    "ffmpeg", "-y", "-i", str(temp_dl),
+                    "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+                    str(voice_path),
+                ]
+                subprocess.run(convert_cmd, capture_output=True, check=True)
+                if temp_dl.exists():
+                    try:
+                        temp_dl.unlink()
+                    except Exception:
+                        pass
+        else:
+            raise HTTPException(status_code=400, detail="Cần cung cấp voice_audio hoặc voice_url")
+
+        segments = []
+        if auto_transcribe and voice_path.exists():
+            segments = transcribe_video_audio(
+                voice_path,
+                language="vi",
+                model_size="base",
+                reference_script=reference_script,
+            )
+            raw_json_path = session_dir / "subtitles_raw.json"
+            with open(raw_json_path, "w", encoding="utf-8") as f:
+                json.dump(segments, f, ensure_ascii=False, indent=2)
+
+        return {
+            "session_id": session_id,
+            "status": "success",
+            "voiceover_url": f"http://localhost:8000/outputs/captions/{session_id}/voiceover.wav",
+            "segments": segments,
+        }
+    except Exception as exc:
+        logger.error(f"Lỗi khi gắn voiceover vào session: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Không thể gắn giọng đọc: {str(exc)}") from exc
+
+
+@app.post("/api/caption/upload-font")
+async def upload_custom_font(
+    font: UploadFile = File(...),
+    session_id: str = Form(...),
+):
+    """Tải lên file font tùy chỉnh (.ttf, .otf) cho session hiện tại."""
+    session_dir = CAPTIONS_DIR / session_id
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="Session không tồn tại")
+
+    fonts_dir = session_dir / "fonts"
+    fonts_dir.mkdir(exist_ok=True)
+
+    font_filename = font.filename or "custom_font.ttf"
+    font_path = fonts_dir / font_filename
+
+    try:
+        with open(font_path, "wb") as buffer:
+            shutil.copyfileobj(font.file, buffer)
+
+        font_family_name = Path(font_filename).stem
+        logger.info(f"✅ Đã tải font tùy chỉnh: {font_family_name} ({font_filename})")
+
+        return {
+            "status": "success",
+            "font_name": font_family_name,
+            "filename": font_filename,
+            "font_url": f"http://localhost:8000/outputs/captions/{session_id}/fonts/{font_filename}",
+        }
+    except Exception as exc:
+        logger.error(f"Lỗi khi lưu font tùy chỉnh: {exc}")
+        raise HTTPException(status_code=500, detail=f"Không thể tải font: {str(exc)}") from exc
+
+
+@app.post("/api/caption/export")
+async def export_captioned_video(request: ExportCaptionRequest):
+    """
+    Nhận cấu hình style, text đã chỉnh sửa và render video hoàn chỉnh kèm phụ đề Kinetic & BGM.
+    """
+    session_dir = CAPTIONS_DIR / request.session_id
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="Phiên làm việc (Session) không tồn tại")
+
+    # Tìm file video raw trong session_dir
+    video_files = list(session_dir.glob("video_raw.*"))
+    if not video_files:
+        raise HTTPException(status_code=400, detail="Không tìm thấy video gốc trong session")
+    video_path = video_files[0]
+
+    # Kiểm tra Voiceover
+    voiceover_path = None
+    if request.has_voiceover:
+        voiceover_files = list(session_dir.glob("voiceover.*"))
+        if voiceover_files:
+            voiceover_path = voiceover_files[0]
+
+    # Kiểm tra BGM
+    bgm_path = None
+    if request.has_bgm:
+        bgm_files = list(session_dir.glob("bgm.*"))
+        if bgm_files:
+            bgm_path = bgm_files[0]
+
+    # Kiểm tra font tùy chỉnh
+    fonts_dir = session_dir / "fonts"
+    fonts_dir_param = fonts_dir if (fonts_dir.exists() and any(fonts_dir.iterdir())) else None
+
+    ass_path = session_dir / "subtitles.ass"
+    output_path = session_dir / "output_final.mp4"
+
+    # Xóa file output cũ nếu đã xuất trước đó để giải phóng dung lượng đĩa
+    if output_path.exists():
+        try:
+            output_path.unlink()
+            logger.info(f"🗑️ Đã xóa video thành phẩm cũ của session {request.session_id} để tạo bản mới.")
+        except Exception as e:
+            logger.warning(f"Không thể xóa file cũ: {e}")
+
+    try:
+        # 1. Sinh file phụ đề ASS với kích thước video thực tế
+        generate_ass_subtitles(request.segments, request.style_config, ass_path, video_path=video_path)
+
+        # 2. Render bằng FFmpeg
+        render_video_with_captions(
+            video_path=video_path,
+            ass_path=ass_path,
+            output_path=output_path,
+            voiceover_path=voiceover_path,
+            voiceover_start_time=request.voiceover_start_time,
+            audio_clips=request.audio_clips,
+            bgm_path=bgm_path,
+            bgm_volume=request.bgm_volume,
+            fonts_dir=fonts_dir_param,
+        )
+
+        return {
+            "status": "success",
+            "download_url": f"http://localhost:8000/api/caption/download/{request.session_id}",
+            "filename": f"kinetic_{request.session_id[:8]}.mp4",
+        }
+    except Exception as exc:
+        logger.error(f"Lỗi khi render video thành phẩm: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Render video thất bại: {str(exc)}"
+        ) from exc
+
+
+@app.get("/api/caption/download/{session_id}")
+async def download_caption_video(session_id: str):
+    """
+    Tải file video đã ép phụ đề về máy.
+    FileResponse tự động đính kèm header 'Content-Disposition: attachment; filename=...'
+    để trình duyệt bắt buộc mở hộp thoại lưu file về máy thay vì mở phát trực tiếp.
+    """
+    safe_id = os.path.basename(session_id)
+    video_path = CAPTIONS_DIR / safe_id / "output_final.mp4"
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="File video thành phẩm không tồn tại")
+
+    filename = f"kinetic_{safe_id[:8]}.mp4"
+    return FileResponse(
+        path=str(video_path),
+        media_type="video/mp4",
+        filename=filename,
+    )
+
+
+@app.delete("/api/caption/session/{session_id}")
+@app.post("/api/caption/session/{session_id}/delete")
+async def delete_caption_session(session_id: str):
+    """
+    Xóa toàn bộ thư mục và các file tạm của session (video raw, audio, ass, output...).
+    Hỗ trợ cả DELETE và POST (phục vụ navigator.sendBeacon khi người dùng rời trang).
+    """
+    safe_id = os.path.basename(session_id)
+    session_dir = CAPTIONS_DIR / safe_id
+    if session_dir.exists() and session_dir.is_dir():
+        try:
+            shutil.rmtree(session_dir)
+            logger.info(f"🗑️ Đã dọn dẹp sạch thư mục session: {safe_id}")
+            return {"message": "Đã dọn dẹp session thành công"}
+        except Exception as e:
+            logger.error(f"Lỗi khi xóa session {safe_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Không thể xóa session: {e}")
+    return {"message": "Session không tồn tại hoặc đã bị xóa trước đó"}
+
+
+@app.get("/api/caption/session/{session_id}/restore-raw")
+async def restore_raw_caption_segments(session_id: str):
+    """
+    Khôi phục mốc thời gian phụ đề gốc từ file subtitles_raw.json được lưu trữ trên server.
+    Đảm bảo phụ đề khớp 100% với giọng nói trong video khi người dùng cần khôi phục.
+    """
+    safe_id = os.path.basename(session_id)
+    session_dir = CAPTIONS_DIR / safe_id
+    raw_json_path = session_dir / "subtitles_raw.json"
+    if not raw_json_path.exists():
+        raise HTTPException(
+            status_code=404, detail="Không tìm thấy bản sao lưu mốc phụ đề gốc trên server"
+        )
+
+    try:
+        with open(raw_json_path, "r", encoding="utf-8") as f:
+            segments = json.load(f)
+        return {"session_id": safe_id, "segments": segments}
+    except Exception as exc:
+        logger.error(f"Lỗi khi đọc file mốc gốc: {exc}")
+        raise HTTPException(status_code=500, detail="Lỗi khi đọc bản sao lưu mốc gốc")
+
+
+class TrimSilencesRequest(BaseModel):
+    session_id: str
+    keep_ranges: list[dict[str, float]]
+
+
+@app.post("/api/caption/trim-silences")
+async def trim_silences_endpoint(body: TrimSilencesRequest):
+    """
+    Cắt gọt video vật lý bằng FFmpeg theo danh sách keep_ranges (loại bỏ hoàn toàn khoảng lặng).
+    Tạo ra file video mới và trả về URL để nạp vào player.
+    """
+    safe_id = os.path.basename(body.session_id)
+    session_dir = CAPTIONS_DIR / safe_id
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="Session không tồn tại")
+
+    video_files = list(session_dir.glob("video_raw.*"))
+    if not video_files:
+        raise HTTPException(status_code=404, detail="Không tìm thấy video gốc trong session")
+
+    input_video = video_files[0]
+    trimmed_name = f"video_trimmed_{uuid.uuid4().hex[:8]}.mp4"
+    output_video = session_dir / trimmed_name
+
+    try:
+        trim_video_by_ranges(input_video, body.keep_ranges, output_video)
+        return {
+            "session_id": safe_id,
+            "trimmed_video_url": f"http://localhost:8000/outputs/captions/{safe_id}/{trimmed_name}",
+            "filename": trimmed_name,
+        }
+    except Exception as exc:
+        logger.error(f"Lỗi khi cắt gọt video bằng FFmpeg: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Cắt video thất bại: {str(exc)}"
+        ) from exc
+
+
+
