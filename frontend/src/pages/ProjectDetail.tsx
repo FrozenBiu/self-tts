@@ -14,7 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useTTSStore, type ScriptBlock } from "../store/useTTSStore";
+import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
 import { ScriptBlockItem } from "../components/project/ScriptBlockItem";
 import { SmartSplitModal } from "../components/project/SmartSplitModal";
 import { MasterAudioBar } from "../components/project/MasterAudioBar";
@@ -28,6 +28,7 @@ export default function ProjectDetail() {
     removeHistory,
     voices,
     fetchVoices,
+    pronunciationWords,
     updateProjectBlocks,
     updateProjectMaster,
   } = useTTSStore();
@@ -207,16 +208,22 @@ export default function ProjectDetail() {
     handleUpdateBlock(blockId, { status: "rendering", error: undefined });
 
     try {
+      const processedText = applyPronunciationDictionary(
+        target.text.trim(),
+        pronunciationWords,
+      );
+
       const res = await fetch("http://localhost:8000/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: target.text.trim(),
+          text: processedText,
           mode: "clone",
           voice_id: target.voiceId || null,
           speed: target.speed || 1.0,
           pitch: target.pitch || 0.0,
           format: "mp3",
+          enhance_audio: useTTSStore.getState().enhanceAudio,
         }),
       });
 
@@ -300,16 +307,22 @@ export default function ProjectDetail() {
       saveBlocks(currentList);
 
       try {
+        const processedText = applyPronunciationDictionary(
+          blk.text.trim(),
+          pronunciationWords,
+        );
+
         const res = await fetch("http://localhost:8000/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            text: blk.text.trim(),
+            text: processedText,
             mode: "clone",
             voice_id: blk.voiceId || null,
             speed: blk.speed || 1.0,
             pitch: blk.pitch || 0.0,
             format: "mp3",
+            enhance_audio: useTTSStore.getState().enhanceAudio,
           }),
         });
 
