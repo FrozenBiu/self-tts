@@ -166,10 +166,11 @@ export function AudioRecordItem({
 }
 
 export default function Library() {
-  const { history, removeHistory } = useTTSStore();
+  const { history, removeHistory, cleanupJunkFiles } = useTTSStore();
 
   // Phân trang
   const [currentPage, setCurrentPage] = useState(1);
+  const [isCleaning, setIsCleaning] = useState(false);
   const itemsPerPage = 5;
 
   const totalPages = Math.ceil(history.length / itemsPerPage);
@@ -180,6 +181,25 @@ export default function Library() {
   if (currentPage > totalPages && totalPages > 0) {
     setCurrentPage(totalPages);
   }
+
+  const handleCleanJunk = async () => {
+    setIsCleaning(true);
+    const toastId = toast.loading("Đang quét và dọn dẹp các file âm thanh rác...");
+    try {
+      const res = await cleanupJunkFiles(true);
+      if (res.deleted_count > 0) {
+        toast.success(`Đã dọn dẹp ${res.deleted_count} file rác, giải phóng ${res.freed_mb} MB bộ nhớ!`, {
+          id: toastId,
+        });
+      } else {
+        toast.success("Hệ thống sạch sẽ! Không có file rác mồ côi nào.", { id: toastId });
+      }
+    } catch (e: any) {
+      toast.error(`Lỗi dọn dẹp: ${e.message}`, { id: toastId });
+    } finally {
+      setIsCleaning(false);
+    }
+  };
 
   return (
     <div className="glass-card rounded-xl w-full max-w-4xl 2k:max-w-6xl p-6 md:p-8 2k:p-10 flex flex-col gap-8 shadow-2xl">
@@ -193,8 +213,21 @@ export default function Library() {
             Thư viện Audio
           </h1>
         </div>
-        <div className="bg-surface-variant px-3 py-1 rounded-full text-xs font-mono-data text-on-surface-variant border border-white/5">
-          {history.length} mục
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleCleanJunk}
+            disabled={isCleaning}
+            className="flex items-center gap-1.5 bg-surface-variant hover:bg-white/10 text-on-surface border border-white/10 px-3 py-1.5 rounded-xl font-label-caps text-xs transition-all shadow-sm"
+            title="Quét và xóa các file audio tạm/mồ côi trong thư mục outputs/ không còn được lưu"
+          >
+            <span className={`material-symbols-outlined text-[16px] ${isCleaning ? "animate-spin" : "text-amber-400"}`}>
+              {isCleaning ? "sync" : "mop"}
+            </span>
+            Dọn dẹp rác
+          </button>
+          <div className="bg-surface-variant px-3 py-1 rounded-full text-xs font-mono-data text-on-surface-variant border border-white/5">
+            {history.length} mục
+          </div>
         </div>
       </div>
 
