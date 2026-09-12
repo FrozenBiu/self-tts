@@ -1,0 +1,28 @@
+# ── OS & Editor ─────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/settings.json
+.idea/
+
+# ── Python Backend ───────────────────────────────
+backend/__pycache__/
+backend/*.py[cod]
+backend/venv/
+backend/.env
+backend/local_models/
+backend/outputs/
+backend/scratch_*.txt
+backend/*.scratch.*
+
+# ── Node / Frontend ──────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.production
+
+# ── Logs & Temp ──────────────────────────────────
+*.log
+*.tmp
+*.bak
