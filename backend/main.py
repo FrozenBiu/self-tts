@@ -779,12 +779,20 @@ f"{request.engine}_{request.text}_{request.mode}_{request.instruct}_{request.voi
                 enhance_audio=request.enhance_audio,
             )
 
+            if request.pitch != 0.0:
+                try:
+                    import librosa
+                    audio_np = librosa.effects.pitch_shift(
+                        audio_np, sr=final_sample_rate, n_steps=request.pitch
+                    )
+                except Exception as pitch_err:
+                    logger.warning(f"Không thể chỉnh pitch: {pitch_err}")
+
             save_audio_file(
                 output_path=output_path,
                 audio=audio_np,
                 sample_rate=final_sample_rate,
-                pitch=request.pitch,
-                format=request.format,
+                audio_format=request.format,
             )
         else:
             # ── [OmniVoice Engine] ────────────────────────────────────────
