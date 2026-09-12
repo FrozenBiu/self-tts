@@ -26,8 +26,8 @@ import torch
 # pyrefly: ignore [missing-import]
 import librosa
 
-# pyrefly: ignore [missing-import]
 from omnivoice import OmniVoice, VoiceClonePrompt
+from audio_processor import enhance_vocal_audio
 
 # Tự động tải biến môi trường từ file .env
 load_dotenv()
@@ -291,7 +291,7 @@ def save_audio_file(
             sample_width=2,
             channels=channels,
         )
-        segment.export(str(path), format=fmt)
+        segment.export(str(path), format=fmt, bitrate="320k" if fmt == "mp3" else None)
 
     # Nếu là định dạng không phải MP3 (ví dụ WAV, FLAC, OGG...)
     if fmt != "mp3":
@@ -359,6 +359,7 @@ def generate_audio(
     speed: float = 1.0,
     pitch: float = 0.0,
     audio_format: str = "mp3",
+    enhance_audio: bool = True,
 ) -> None:
     """
     Gọi OmniVoice.generate() và lưu file âm thanh 24kHz đầu ra.
@@ -518,14 +519,31 @@ def generate_audio(
         import librosa
         audio = librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=pitch)
 
+    # Áp dụng Studio Audio Mastering Pipeline nếu được bật (mặc định True)
+    export_sr = SAMPLE_RATE
+    if enhance_audio:
+        try:
+            audio, export_sr = enhance_vocal_audio(
+                audio=audio,
+                sr=SAMPLE_RATE,
+                target_sr=44100 if audio_format.lower() in ("mp3", "wav") else SAMPLE_RATE,
+                enable_eq=True,
+                enable_compression=True,
+                enable_normalization=True,
+            )
+            logger.info(f"✨ Đã áp dụng Studio Vocal Mastering -> {export_sr}Hz cho {output_path.name}")
+        except Exception as proc_err:
+            logger.warning(f"⚠️ Lỗi khi áp dụng Audio Mastering ({proc_err}), dùng âm thanh gốc 24kHz")
+            export_sr = SAMPLE_RATE
+
     # Lưu file âm thanh với cơ chế fallback tự động theo AUDIO_MP3_BACKEND
     save_audio_file(
         output_path=output_path,
         audio=audio,
-        sample_rate=SAMPLE_RATE,
+        sample_rate=export_sr,
         audio_format=audio_format,
     )
 
     logger.info(
-        f"💾 Đã lưu: {output_path.name} | {len(audio) / SAMPLE_RATE:.2f}s | {SAMPLE_RATE}Hz | Format: {audio_format}"
+        f"💾 Đã lưu: {output_path.name} | {len(audio) / export_sr:.2f}s | {export_sr}Hz | Format: {audio_format}"
     )
