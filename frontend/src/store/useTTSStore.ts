@@ -18,11 +18,31 @@ export interface AudioRecord {
   pitch?: number;
 }
 
+export interface ScriptBlock {
+  id: string;
+  text: string;
+  voiceId?: string | null;
+  voiceName?: string;
+  speed: number;
+  pitch: number;
+  pauseAfter: number; // Khoảng lặng sau đoạn tính bằng giây (vd: 0.5)
+  status: "idle" | "rendering" | "ready" | "error";
+  audioUrl?: string;
+  filename?: string;
+  duration?: number;
+  error?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   description?: string;
   createdAt: number;
+  blocks?: ScriptBlock[];
+  masterAudioUrl?: string;
+  masterFilename?: string;
+  masterSrtUrl?: string;
+  masterDuration?: number;
 }
 
 export interface Voice {
@@ -36,7 +56,24 @@ export interface Voice {
   type?: "preset" | "custom";
 }
 
+export interface PauseSettings {
+  period: number; // Dấu chấm (. ! ? …): mặc định 0.45s
+  comma: number; // Dấu phẩy (,): mặc định 0.25s
+  semicolon: number; // Dấu chấm phẩy (;): mặc định 0.30s
+  newline: number; // Xuống dòng (\n): mặc định 0.60s
+}
+
+export const DEFAULT_PAUSE_SETTINGS: PauseSettings = {
+  period: 0.45,
+  comma: 0.25,
+  semicolon: 0.3,
+  newline: 0.6,
+};
+
 interface TTSState {
+  pauseSettings: PauseSettings;
+  setPauseSettings: (settings: Partial<PauseSettings>) => void;
+  resetPauseSettings: () => void;
   text: string;
   mode: "clone" | "design";
   instruct: string;
@@ -59,7 +96,7 @@ interface TTSState {
   setMode: (mode: "clone" | "design") => void;
   setInstruct: (instruct: string) => void;
   setNumStep: (num_step: number) => void;
-  addProject: (name: string, description?: string) => void;
+  addProject: (name: string, description?: string, initialData?: Partial<Project>) => Project;
   deleteProject: (id: string) => void;
   updateRecordProject: (recordId: string, projectId?: string) => void;
   togglePin: (id: string) => void;
@@ -77,6 +114,21 @@ interface TTSState {
   fetchVoices: () => Promise<void>;
   setSelectedVoiceId: (id: string | null) => void;
   deleteCustomVoice: (id: string) => Promise<void>;
+  updateProjectBlocks: (projectId: string, blocks: ScriptBlock[]) => void;
+  updateProjectMaster: (
+    projectId: string,
+    master: {
+      masterAudioUrl?: string;
+      masterFilename?: string;
+      masterSrtUrl?: string;
+      masterDuration?: number;
+    },
+  ) => void;
+  cleanupJunkFiles: (force?: boolean) => Promise<{
+    deleted_count: number;
+    freed_mb: number;
+    message: string;
+  }>;
 }
 
 export const useTTSStore = create<TTSState>((set, get) => {
@@ -84,8 +136,26 @@ export const useTTSStore = create<TTSState>((set, get) => {
   const _savedConfig = JSON.parse(
     localStorage.getItem("tts_model_config") || "{}",
   );
-
   return {
+    pauseSettings: (() => {
+    try {
+      const saved = localStorage.getItem("tts_pause_settings");
+      return saved ? { ...DEFAULT_PAUSE_SETTINGS, ...JSON.parse(saved) } : DEFAULT_PAUSE_SETTINGS;
+    } catch {
+      return DEFAULT_PAUSE_SETTINGS;
+    }
+  })(),
+  setPauseSettings: (newSettings) =>
+    set((state) => {
+      const updated = { ...state.pauseSettings, ...newSettings };
+      localStorage.setItem("tts_pause_settings", JSON.stringify(updated));
+      return { pauseSettings: updated };
+    }),
+  resetPauseSettings: () =>
+    set(() => {
+      localStorage.setItem("tts_pause_settings", JSON.stringify(DEFAULT_PAUSE_SETTINGS));
+      return { pauseSettings: DEFAULT_PAUSE_SETTINGS };
+    }),
   text: "",
   mode: "clone",
   instruct: "",
@@ -105,20 +175,46 @@ export const useTTSStore = create<TTSState>((set, get) => {
   projects: JSON.parse(localStorage.getItem("tts_projects") || "[]"),
   pendingVoiceForVideo: null,
   setPendingVoiceForVideo: (record) => set({ pendingVoiceForVideo: record }),
-  addProject: (name, description) => {
+  addProject: (name, description, initialData = {}) => {
     const newProject: Project = {
       id: Math.random().toString(36).substring(2, 9),
       name,
       description,
       createdAt: Date.now(),
+      ...initialData,
     };
     set((state) => {
       const newProjects = [newProject, ...state.projects];
       localStorage.setItem("tts_projects", JSON.stringify(newProjects));
       return { projects: newProjects };
     });
+    return newProject;
   },
   deleteProject: (id) => {
+    const proj = get().projects.find((p) => p.id === id);
+    if (proj) {
+      // Xoá các file audio của blocks trên backend
+      if (proj.blocks) {
+        for (const b of proj.blocks) {
+          const fn = b.filename || (b.audioUrl ? b.audioUrl.split("/").pop() : null);
+          if (fn) {
+            fetch(`http://localhost:8000/api/tts/${fn}`, { method: "DELETE" }).catch(() => {});
+          }
+        }
+      }
+      // Xoá master audio và srt nếu có
+      const mFn = proj.masterFilename || (proj.masterAudioUrl ? proj.masterAudioUrl.split("/").pop() : null);
+      if (mFn) {
+        fetch(`http://localhost:8000/api/tts/${mFn}`, { method: "DELETE" }).catch(() => {});
+      }
+      if (proj.masterSrtUrl) {
+        const srtFn = proj.masterSrtUrl.split("/").pop();
+        if (srtFn) {
+          fetch(`http://localhost:8000/api/tts/${srtFn}`, { method: "DELETE" }).catch(() => {});
+        }
+      }
+    }
+
     set((state) => {
       // Xoá tất cả các record thuộc project này
       const newHistory = state.history.filter((h) => h.projectId !== id);
@@ -225,5 +321,79 @@ export const useTTSStore = create<TTSState>((set, get) => {
     }
   },
   setSelectedVoiceId: (id) => set({ selectedVoiceId: id }),
+  updateProjectBlocks: (projectId, blocks) => {
+    set((state) => {
+      const newProjects = state.projects.map((p) =>
+        p.id === projectId ? { ...p, blocks } : p,
+      );
+      localStorage.setItem("tts_projects", JSON.stringify(newProjects));
+      return { projects: newProjects };
+    });
+  },
+  updateProjectMaster: (projectId, master) => {
+    set((state) => {
+      const newProjects = state.projects.map((p) =>
+        p.id === projectId ? { ...p, ...master } : p,
+      );
+      localStorage.setItem("tts_projects", JSON.stringify(newProjects));
+      return { projects: newProjects };
+    });
+  },
+  cleanupJunkFiles: async (force = false) => {
+    const state = get();
+    const activeFiles = new Set<string>();
+
+    // 1. Từ lịch sử Audio (history)
+    for (const h of state.history) {
+      if (h.url) {
+        const fn = h.url.split("/").pop();
+        if (fn) activeFiles.add(fn);
+      }
+    }
+
+    // 2. Từ các dự án (projects: blocks + master audio + srt)
+    for (const p of state.projects) {
+      if (p.blocks) {
+        for (const b of p.blocks) {
+          if (b.filename) activeFiles.add(b.filename);
+          else if (b.audioUrl) {
+            const fn = b.audioUrl.split("/").pop();
+            if (fn) activeFiles.add(fn);
+          }
+        }
+      }
+      if (p.masterFilename) activeFiles.add(p.masterFilename);
+      else if (p.masterAudioUrl) {
+        const fn = p.masterAudioUrl.split("/").pop();
+        if (fn) activeFiles.add(fn);
+      }
+      if (p.masterSrtUrl) {
+        const fn = p.masterSrtUrl.split("/").pop();
+        if (fn) activeFiles.add(fn);
+      }
+    }
+
+    try {
+      const res = await fetch("http://localhost:8000/api/tts/cleanup-orphans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          active_filenames: Array.from(activeFiles),
+          max_age_minutes: force ? 0 : 15,
+          force,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Không thể dọn dẹp file rác");
+      }
+
+      return await res.json();
+    } catch (e: any) {
+      console.error("Lỗi khi dọn dẹp file rác:", e);
+      throw e;
+    }
+  },
   }; // end return
 }); // end create

@@ -716,20 +716,252 @@ async def text_to_speech(
 
 @app.delete("/api/tts/{filename}")
 async def delete_audio(filename: str):
-    """Xóa một file âm thanh đã tổng hợp."""
+    """Xóa một file âm thanh đã tổng hợp và file phụ đề đi kèm nếu có."""
     safe_filename = os.path.basename(filename)
     file_path = OUTPUTS_DIR / safe_filename
 
+    deleted = False
     if file_path.exists() and file_path.is_file():
         try:
             file_path.unlink()
+            deleted = True
             logger.info(f"🗑️ Đã xóa file theo yêu cầu: {safe_filename}")
-            return {"message": "Đã xóa file thành công"}
         except Exception as e:
             logger.error(f"Lỗi khi xóa file {safe_filename}: {e}")
             raise HTTPException(status_code=500, detail="Không thể xóa file")
 
+    # Xóa kèm file phụ đề tương ứng nếu có
+    srt_candidate = file_path.with_suffix(".srt")
+    if srt_candidate.exists() and srt_candidate.is_file():
+        srt_candidate.unlink(missing_ok=True)
+        deleted = True
+
+    if deleted:
+        return {"message": "Đã xóa file thành công"}
+
     return {"message": "File không tồn tại hoặc đã bị xóa trước đó"}
+
+
+# ─── Garbage Collection & Orphan Files Cleanup ───────────────────────────────
+
+class CleanupOrphansRequest(BaseModel):
+    active_filenames: list[str] = Field(
+        default_factory=list,
+        description="Danh sách các filename đang được sử dụng trong projects và history",
+    )
+    max_age_minutes: int = Field(
+        default=15,
+        description="Chỉ xoá file rác có tuổi thọ lớn hơn số phút này",
+    )
+    force: bool = Field(
+        default=False,
+        description="Xoá tất cả file rác không dùng ngay lập tức (không cần đợi hết hạn)",
+    )
+
+
+class CleanupOrphansResponse(BaseModel):
+    message: str
+    deleted_count: int
+    freed_bytes: int
+    freed_mb: float
+
+
+@app.post(
+    "/api/tts/cleanup-orphans",
+    response_model=CleanupOrphansResponse,
+    summary="Dọn dẹp các file âm thanh và phụ đề rác không còn được sử dụng",
+    tags=["TTS"],
+)
+async def cleanup_orphans(request: CleanupOrphansRequest):
+    """
+    Quét thư mục outputs/ và xoá các file âm thanh/phụ đề mồ côi (không thuộc bất kỳ dự án hay lịch sử nào).
+    """
+    import time
+    now = time.time()
+
+    # Chuẩn hóa tập hợp các file active để tìm kiếm O(1)
+    active_set = {os.path.basename(f) for f in request.active_filenames if f}
+
+    # Luôn bảo vệ các file hệ thống cố định
+    protected_files = {"demo_voice.wav", ".gitkeep"}
+
+    deleted_count = 0
+    freed_bytes = 0
+
+    for p in OUTPUTS_DIR.iterdir():
+        if not p.is_file() or p.name in protected_files:
+            continue
+
+        # Chỉ xử lý các file âm thanh và subtitle do hệ thống sinh ra
+        if not p.name.lower().endswith((".mp3", ".wav", ".srt", ".ass", ".vtt")):
+            continue
+
+        # Nếu file không nằm trong danh sách đang được sử dụng
+        if p.name not in active_set:
+            file_age_sec = now - p.stat().st_mtime
+            min_age_sec = request.max_age_minutes * 60
+
+            # Xoá nếu force=True hoặc file đã cũ hơn max_age_minutes
+            if request.force or file_age_sec >= min_age_sec:
+                try:
+                    f_size = p.stat().st_size
+                    p.unlink(missing_ok=True)
+                    deleted_count += 1
+                    freed_bytes += f_size
+                    logger.info(f"🗑️ Đã dọn dẹp file rác: {p.name} ({f_size / 1024:.1f} KB)")
+                except Exception as e:
+                    logger.warning(f"Không thể xoá file {p.name}: {e}")
+
+    freed_mb = round(freed_bytes / (1024 * 1024), 2)
+    return CleanupOrphansResponse(
+        message=f"Đã dọn dẹp {deleted_count} file rác, giải phóng {freed_mb} MB.",
+        deleted_count=deleted_count,
+        freed_bytes=freed_bytes,
+        freed_mb=freed_mb,
+    )
+
+
+# ─── Segment / Block-based TTS Stitching ──────────────────────────────────────
+
+class StitchBlockItem(BaseModel):
+    filename: str = Field(..., description="Tên file âm thanh trong outputs/ (vd: tts_abc.mp3)")
+    pause_after: float = Field(default=0.5, ge=0.0, le=10.0, description="Khoảng lặng sau đoạn tính bằng giây")
+    text: str = Field(default="", description="Văn bản của đoạn để sinh phụ đề SRT")
+
+
+class StitchRequest(BaseModel):
+    blocks: list[StitchBlockItem] = Field(..., min_length=1, description="Danh sách các phân đoạn cần ghép nối")
+    format: str = Field(default="mp3", description="Định dạng âm thanh đầu ra: 'mp3' hoặc 'wav'")
+    project_name: str | None = Field(default=None, description="Tên dự án (tùy chọn)")
+
+
+class StitchResponse(BaseModel):
+    message: str
+    filename: str
+    audio_url: str
+    srt_filename: str | None = None
+    srt_url: str | None = None
+    total_duration: float
+
+
+def _format_srt_time(seconds: float) -> str:
+    """Chuyển đổi số giây thành định dạng thời gian SRT: 00:00:00,000"""
+    millis = int(round(seconds * 1000))
+    hours = millis // 3600000
+    millis %= 3600000
+    minutes = millis // 60000
+    millis %= 60000
+    secs = millis // 1000
+    millis %= 1000
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+@app.post(
+    "/api/tts/stitch",
+    response_model=StitchResponse,
+    summary="Ghép nối các đoạn âm thanh phân đoạn kèm khoảng lặng và sinh phụ đề SRT",
+    tags=["TTS"],
+)
+async def stitch_audio(
+    request: StitchRequest,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Nối danh sách các file audio phân đoạn tuần tự, chèn khoảng im lặng chuẩn xác giữa các đoạn,
+    xuất file master (.mp3 hoặc .wav) và file phụ đề (.srt) đồng bộ.
+    """
+    from pydub import AudioSegment
+
+    if not request.blocks:
+        raise HTTPException(status_code=400, detail="Danh sách phân đoạn rỗng")
+
+    # Kiểm tra sự tồn tại của các file thành phần
+    for idx, block in enumerate(request.blocks):
+        safe_name = os.path.basename(block.filename)
+        file_p = OUTPUTS_DIR / safe_name
+        if not file_p.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Không tìm thấy file audio ở phân đoạn {idx + 1}: {safe_name}",
+            )
+
+    combined = AudioSegment.empty()
+    srt_entries: list[str] = []
+    current_time_sec = 0.0
+
+    for idx, block in enumerate(request.blocks):
+        safe_name = os.path.basename(block.filename)
+        file_p = OUTPUTS_DIR / safe_name
+
+        try:
+            segment_audio = AudioSegment.from_file(str(file_p))
+        except Exception as e:
+            logger.error(f"Lỗi đọc file audio phân đoạn {safe_name}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Không thể giải mã file {safe_name}: {str(e)}",
+            )
+
+        duration_sec = len(segment_audio) / 1000.0
+        start_sec = current_time_sec
+        end_sec = current_time_sec + duration_sec
+
+        # Ghi mục phụ đề SRT nếu có text
+        clean_text = block.text.strip()
+        if clean_text:
+            start_str = _format_srt_time(start_sec)
+            end_str = _format_srt_time(end_sec)
+            srt_entries.append(f"{len(srt_entries) + 1}\n{start_str} --> {end_str}\n{clean_text}\n")
+
+        # Nối audio của đoạn
+        combined += segment_audio
+        current_time_sec += duration_sec
+
+        # Chèn khoảng lặng nếu được chỉ định và chưa phải block cuối (hoặc pause_after > 0)
+        if block.pause_after > 0:
+            pause_ms = int(block.pause_after * 1000)
+            combined += AudioSegment.silent(duration=pause_ms)
+            current_time_sec += block.pause_after
+
+    # Xuất file master
+    file_id = uuid.uuid4().hex[:10]
+    out_ext = ".mp3" if request.format.lower() == "mp3" else ".wav"
+    export_format = "mp3" if request.format.lower() == "mp3" else "wav"
+    out_filename = f"master_{file_id}{out_ext}"
+    out_path = OUTPUTS_DIR / out_filename
+
+    try:
+        combined.export(
+            str(out_path),
+            format=export_format,
+            bitrate="192k" if export_format == "mp3" else None,
+        )
+        logger.info(f"🎉 Ghép nối master audio thành công: {out_filename} (Thời lượng: {combined.duration_seconds:.2f}s)")
+    except Exception as e:
+        logger.error(f"Lỗi xuất file master audio: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi xuất audio: {str(e)}")
+
+    # Xuất file SRT nếu có ít nhất 1 câu text
+    srt_filename = None
+    srt_url = None
+    if srt_entries:
+        srt_filename = f"master_{file_id}.srt"
+        srt_path = OUTPUTS_DIR / srt_filename
+        with open(srt_path, "w", encoding="utf-8") as sf:
+            sf.write("\n".join(srt_entries))
+        srt_url = f"http://localhost:8000/outputs/{srt_filename}"
+        logger.info(f"📝 Đã tạo file phụ đề SRT đồng bộ: {srt_filename}")
+
+    background_tasks.add_task(_cleanup_old_files)
+
+    return StitchResponse(
+        message="Ghép nối phân đoạn thành công!",
+        filename=out_filename,
+        audio_url=f"http://localhost:8000/outputs/{out_filename}",
+        srt_filename=srt_filename,
+        srt_url=srt_url,
+        total_duration=round(combined.duration_seconds, 2),
+    )
 
 
 # ─── Auto Caption & Video Editing Endpoints ─────────────────────────────────

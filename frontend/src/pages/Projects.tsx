@@ -1,13 +1,38 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTTSStore } from "../store/useTTSStore";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 export default function Projects() {
-  const { projects, addProject, deleteProject, history } = useTTSStore();
+  const { projects, addProject, deleteProject, history, cleanupJunkFiles } = useTTSStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
+  const [isCleaning, setIsCleaning] = useState(false);
+
+  useEffect(() => {
+    // Tự động dọn dẹp nhẹ các file rác cũ hơn 15 phút ở chế độ nền
+    cleanupJunkFiles(false).catch(() => {});
+  }, [cleanupJunkFiles]);
+
+  const handleCleanJunk = async () => {
+    setIsCleaning(true);
+    const toastId = toast.loading("Đang quét và dọn dẹp các file âm thanh rác...");
+    try {
+      const res = await cleanupJunkFiles(true);
+      if (res.deleted_count > 0) {
+        toast.success(`Đã dọn dẹp ${res.deleted_count} file rác, giải phóng ${res.freed_mb} MB bộ nhớ!`, {
+          id: toastId,
+        });
+      } else {
+        toast.success("Hệ thống sạch sẽ! Không có file rác mồ côi nào.", { id: toastId });
+      }
+    } catch (e: any) {
+      toast.error(`Lỗi dọn dẹp: ${e.message}`, { id: toastId });
+    } finally {
+      setIsCleaning(false);
+    }
+  };
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,13 +58,26 @@ export default function Projects() {
             Dự án
           </h1>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-primary text-on-primary px-4 py-2 rounded-lg font-label-caps text-sm hover:shadow-lg transition-all"
-        >
-          <span className="material-symbols-outlined text-[20px]">add</span>
-          Tạo dự án mới
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleCleanJunk}
+            disabled={isCleaning}
+            className="flex items-center gap-2 bg-surface-variant hover:bg-white/10 text-on-surface border border-white/10 px-3.5 py-2 rounded-lg font-label-caps text-xs transition-all shadow-sm"
+            title="Quét và xóa các file audio tạm không thuộc dự án hay lịch sử nào"
+          >
+            <span className={`material-symbols-outlined text-[18px] ${isCleaning ? "animate-spin" : "text-amber-400"}`}>
+              {isCleaning ? "sync" : "mop"}
+            </span>
+            Dọn dẹp file rác
+          </button>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 bg-primary text-black font-semibold px-4 py-2 rounded-lg font-label-caps text-sm hover:shadow-lg transition-all"
+          >
+            <span className="material-symbols-outlined text-[20px]">add</span>
+            Tạo dự án mới
+          </button>
+        </div>
       </div>
 
       {projects.length === 0 ? (
@@ -94,6 +132,12 @@ export default function Projects() {
                   </p>
                 )}
                 <div className="mt-auto flex items-center gap-4 text-xs font-mono-data text-on-surface-variant/70 pt-2 border-t border-white/5">
+                  <span className="flex items-center gap-1.5 text-primary font-bold">
+                    <span className="material-symbols-outlined text-[14px]">
+                      layers
+                    </span>
+                    {(p.blocks?.length || 0)} phân đoạn
+                  </span>
                   <span className="flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-[14px]">
                       audio_file
