@@ -1,8 +1,20 @@
-import { useTTSStore } from "../store/useTTSStore";
+import { useTTSStore, type ScriptBlock } from "../store/useTTSStore";
 import { toast } from "sonner";
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { downloadAudioFile } from "../utils/download";
+import { ScriptBlockItem } from "../components/project/ScriptBlockItem";
+import { PauseSettingsModal } from "../components/PauseSettingsModal";
+import {
+  Layers,
+  Plus,
+  Loader2,
+  FolderPlus,
+  X,
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
+} from "lucide-react";
 
 export default function Studio() {
   const navigate = useNavigate();
@@ -12,6 +24,7 @@ export default function Studio() {
     instruct,
     cfg_value,
     seed,
+    pauseSettings,
     speed,
     pitch,
     isLoading,
@@ -35,12 +48,45 @@ export default function Studio() {
     projects,
     history,
     setPendingVoiceForVideo,
+    addProject,
+    updateProjectBlocks,
+    updateProjectMaster,
   } = useTTSStore();
 
   const [elapsedTime, setElapsedTime] = useState(0);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Danh sách phân đoạn câu tại Studio (hiển thị sau khi tổng hợp) ─────────
+  const [studioBlocks, setStudioBlocks] = useState<ScriptBlock[]>(() => {
+    return JSON.parse(localStorage.getItem("tts_studio_blocks") || "[]");
+  });
+
+  const saveStudioBlocks = (newBlocks: ScriptBlock[]) => {
+    setStudioBlocks(newBlocks);
+    localStorage.setItem("tts_studio_blocks", JSON.stringify(newBlocks));
+  };
+
+  const [isSegmentsCollapsed, setIsSegmentsCollapsed] = useState(false);
+  const [hasModifiedSegments, setHasModifiedSegments] = useState(false);
+  const [isUpdatingMaster, setIsUpdatingMaster] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
+
+  // Trình phát nghe thử tuần tự / preview tại Studio
+  const [playingStudioBlockId, setPlayingStudioBlockId] = useState<string | null>(null);
+  const studioSequenceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const studioSequenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Modal Lưu vào Dự án
+  const [isSaveProjectModalOpen, setIsSaveProjectModalOpen] = useState(false);
+  const [saveProjectTab, setSaveProjectTab] = useState<"new" | "existing">("new");
+  const [newProjectTitle, setNewProjectTitle] = useState("");
+  const [newProjectNotes, setNewProjectNotes] = useState("");
+  const [targetExistingProjectId, setTargetExistingProjectId] = useState<string>("");
+  const [saveExistingMode, setSaveExistingMode] = useState<"append" | "replace">("append");
+  // Modal Thiết lập ngắt nghỉ
+  const [isPauseSettingsOpen, setIsPauseSettingsOpen] = useState(false);
 
   // ── Lưu cấu hình mô hình vào localStorage ─────────────────────────────────
   const [configSaved, setConfigSaved] = useState(false);
@@ -192,12 +238,324 @@ export default function Studio() {
       setPlayingPreviewUrl(null);
     };
 
+    studioSequenceAudioRef.current = new Audio();
+
     return () => {
       if (previewAudioRef.current) {
         previewAudioRef.current.pause();
       }
+      if (studioSequenceAudioRef.current) {
+        studioSequenceAudioRef.current.pause();
+      }
+      if (studioSequenceTimeoutRef.current) {
+        clearTimeout(studioSequenceTimeoutRef.current);
+      }
     };
   }, []);
+
+  // ── Các hàm xử lý Kịch bản phân đoạn tại Studio ───────────────────────────
+  const handleAddStudioBlock = (afterIndex?: number) => {
+    const newBlock: ScriptBlock = {
+      id: "block_" + Math.random().toString(36).substring(2, 9),
+      text: "",
+      voiceId: selectedVoiceId || (voices.length > 0 ? voices[0].id : null),
+      voiceName:
+        voices.find((v) => v.id === (selectedVoiceId || voices[0]?.id))?.name ||
+        "Mặc định",
+      speed: 1.0,
+      pitch: 0.0,
+      pauseAfter: 0.5,
+      status: "idle",
+    };
+
+    if (typeof afterIndex === "number" && afterIndex >= 0) {
+      const updated = [...studioBlocks];
+      updated.splice(afterIndex + 1, 0, newBlock);
+      saveStudioBlocks(updated);
+    } else {
+      saveStudioBlocks([...studioBlocks, newBlock]);
+    }
+  };
+
+  const handleDeleteStudioBlock = (blockId: string) => {
+    const target = studioBlocks.find((b) => b.id === blockId);
+    if (target?.audioUrl) {
+      const fn = target.filename || target.audioUrl.split("/").pop();
+      if (fn) {
+        fetch(`http://localhost:8000/api/tts/${fn}`, { method: "DELETE" }).catch(() => {});
+      }
+    }
+    const updated = studioBlocks.filter((b) => b.id !== blockId);
+    saveStudioBlocks(updated);
+    toast.success("Đã xóa phân đoạn");
+  };
+
+  const handleUpdateStudioBlock = (blockId: string, updatedFields: Partial<ScriptBlock>) => {
+    const updated = studioBlocks.map((b) =>
+      b.id === blockId ? { ...b, ...updatedFields } : b,
+    );
+    saveStudioBlocks(updated);
+  };
+
+  const handleMoveStudioBlock = (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= studioBlocks.length) return;
+
+    const updated = [...studioBlocks];
+    const [moved] = updated.splice(index, 1);
+    updated.splice(targetIndex, 0, moved);
+    saveStudioBlocks(updated);
+  };
+
+
+  interface ParsedSentence {
+    text: string;
+    pauseAfter: number;
+  }
+
+  const splitIntoSentencesWithPause = (input: string): ParsedSentence[] => {
+    const trimmed = input.trim();
+    if (!trimmed) return [];
+    const lines = trimmed.split(/\r?\n+/);
+    const result: ParsedSentence[] = [];
+
+    lines.forEach((line, lineIdx) => {
+      const lineTrimmed = line.trim();
+      if (!lineTrimmed) return;
+
+      const isLastLine = lineIdx === lines.length - 1;
+
+      // Tách câu theo dấu kết thúc (. ! ? …) hoặc dấu chấm phẩy (;)
+      const parts = lineTrimmed.match(/[^.!?…;]+[.!?…;]*|\S+/g);
+      if (!parts || parts.length === 0) {
+        result.push({
+          text: lineTrimmed,
+          pauseAfter: isLastLine ? pauseSettings.period : pauseSettings.newline,
+        });
+        return;
+      }
+
+      parts.forEach((p, pIdx) => {
+        const seg = p.trim();
+        if (!seg) return;
+        const isLastInLine = pIdx === parts.length - 1;
+
+        let pause = pauseSettings.period;
+        if (isLastInLine && !isLastLine) {
+          pause = pauseSettings.newline;
+        } else if (seg.endsWith(";")) {
+          pause = pauseSettings.semicolon;
+        } else {
+          pause = pauseSettings.period;
+        }
+
+        result.push({
+          text: seg,
+          pauseAfter: pause,
+        });
+      });
+    });
+
+    return result.length > 0 ? result : [{ text: trimmed, pauseAfter: pauseSettings.period }];
+  };
+
+  const handleUpdateMasterAudio = async () => {
+    const readyBlocks = studioBlocks.filter(
+      (b) => b.status === "ready" && (b.filename || b.audioUrl),
+    );
+    if (readyBlocks.length === 0) {
+      toast.error("Vui lòng render ít nhất một phân đoạn trước khi cập nhật");
+      return;
+    }
+
+    setIsUpdatingMaster(true);
+    const toastId = toast.loading("Đang ghép nối và cập nhật lại Audio chính...");
+
+    try {
+      const payload = {
+        blocks: readyBlocks.map((b) => ({
+          filename: b.filename || b.audioUrl!.split("/").pop()!,
+          pause_after: typeof b.pauseAfter === "number" ? b.pauseAfter : pauseSettings.period,
+          text: b.text.trim(),
+        })),
+        format: useTTSStore.getState().audioFormat || "mp3",
+        project_name: "Studio_Master",
+      };
+
+      const res = await fetch("http://localhost:8000/api/tts/stitch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Không thể ghép nối âm thanh");
+      }
+
+      const data = await res.json();
+      setAudioUrl(data.audio_url);
+      setHasModifiedSegments(false);
+      toast.success(`Đã cập nhật Audio chính thành công! (${data.total_duration}s)`, {
+        id: toastId,
+      });
+    } catch (err: any) {
+      toast.error(`Cập nhật thất bại: ${err.message}`, { id: toastId });
+    } finally {
+      setIsUpdatingMaster(false);
+    }
+  };
+
+  const renderSingleStudioBlock = async (blockId: string) => {
+    const target = studioBlocks.find((b) => b.id === blockId);
+    if (!target || !target.text.trim()) {
+      toast.error("Nội dung phân đoạn không được để trống");
+      return;
+    }
+
+    handleUpdateStudioBlock(blockId, { status: "rendering", error: undefined });
+
+    try {
+      const res = await fetch("http://localhost:8000/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: target.text.trim(),
+          mode: "clone",
+          voice_id: target.voiceId || null,
+          speed: target.speed || 1.0,
+          pitch: target.pitch || 0.0,
+          format: useTTSStore.getState().audioFormat || "mp3",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Lỗi tạo âm thanh từ server");
+      }
+
+      const data = await res.json();
+
+      let audioDuration = 0;
+      try {
+        const tempAudio = new Audio(data.audio_url);
+        await new Promise((resolve) => {
+          tempAudio.addEventListener("loadedmetadata", () => {
+            audioDuration = tempAudio.duration;
+            resolve(true);
+          });
+          tempAudio.addEventListener("error", () => resolve(false));
+          setTimeout(resolve, 2000);
+        });
+      } catch (e) {
+        console.warn("Không thể lấy duration audio:", e);
+      }
+
+      const oldFilename = target.filename || (target.audioUrl ? target.audioUrl.split("/").pop() : null);
+
+      handleUpdateStudioBlock(blockId, {
+        status: "ready",
+        audioUrl: data.audio_url,
+        filename: data.filename,
+        duration: audioDuration > 0 ? audioDuration : undefined,
+      });
+
+      if (oldFilename && oldFilename !== data.filename) {
+        fetch(`http://localhost:8000/api/tts/${oldFilename}`, { method: "DELETE" }).catch(() => {});
+      }
+
+      setHasModifiedSegments(true);
+      toast.success("Render phân đoạn thành công! Bạn có thể bấm 'Cập nhật Audio chính' để nghe bản hoàn chỉnh.");
+    } catch (error: any) {
+      handleUpdateStudioBlock(blockId, {
+        status: "error",
+        error: error.message || "Lỗi không xác định",
+      });
+      toast.error(`Render thất bại: ${error.message}`);
+    }
+  };
+
+  const handlePlayStudioBlockPreview = (block: ScriptBlock) => {
+    if (!block.audioUrl || !studioSequenceAudioRef.current) return;
+
+    if (studioSequenceTimeoutRef.current) {
+      clearTimeout(studioSequenceTimeoutRef.current);
+    }
+
+    setPlayingStudioBlockId(block.id);
+
+    studioSequenceAudioRef.current.src = block.audioUrl;
+    studioSequenceAudioRef.current.onended = () => {
+      setPlayingStudioBlockId(null);
+    };
+    studioSequenceAudioRef.current.play().catch((e) => {
+      console.warn("Lỗi phát:", e);
+      setPlayingStudioBlockId(null);
+    });
+  };
+
+  const handleStopStudioPlayback = () => {
+    if (studioSequenceAudioRef.current) {
+      studioSequenceAudioRef.current.pause();
+      studioSequenceAudioRef.current.currentTime = 0;
+    }
+    if (studioSequenceTimeoutRef.current) {
+      clearTimeout(studioSequenceTimeoutRef.current);
+    }
+    setPlayingStudioBlockId(null);
+  };
+
+  const handleSaveStudioAsProject = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (saveProjectTab === "new") {
+      if (!newProjectTitle.trim()) {
+        toast.error("Vui lòng nhập tên dự án mới");
+        return;
+      }
+
+      const createdProj = addProject(newProjectTitle.trim(), newProjectNotes.trim(), {
+        blocks: studioBlocks,
+        masterAudioUrl: audioUrl || undefined,
+      });
+
+      setIsSaveProjectModalOpen(false);
+      setNewProjectTitle("");
+      setNewProjectNotes("");
+      toast.success(`Đã lưu kịch bản vào Dự án mới "${createdProj.name}"!`);
+    } else {
+      if (!targetExistingProjectId) {
+        toast.error("Vui lòng chọn một dự án từ danh sách");
+        return;
+      }
+
+      const targetProj = projects.find((p) => p.id === targetExistingProjectId);
+      if (!targetProj) {
+        toast.error("Không tìm thấy dự án đã chọn");
+        return;
+      }
+
+      const existingBlocks = targetProj.blocks || [];
+      let finalBlocks: ScriptBlock[] = [];
+
+      if (saveExistingMode === "append") {
+        finalBlocks = [...existingBlocks, ...studioBlocks];
+        toast.success(`Đã thêm ${studioBlocks.length} phân đoạn vào dự án "${targetProj.name}"!`);
+      } else {
+        finalBlocks = [...studioBlocks];
+        toast.success(`Đã ghi đè kịch bản cho dự án "${targetProj.name}"!`);
+      }
+
+      updateProjectBlocks(targetProj.id, finalBlocks);
+      if (audioUrl) {
+        updateProjectMaster(targetProj.id, {
+          masterAudioUrl: audioUrl,
+        });
+      }
+
+      setIsSaveProjectModalOpen(false);
+    }
+  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDown(true);
@@ -289,59 +647,190 @@ export default function Studio() {
     }, 1000);
 
     try {
-      const response = await fetch("http://localhost:8000/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const sentences = splitIntoSentencesWithPause(text);
+
+      if (sentences.length <= 1) {
+        // Chỉ có 1 câu: sinh 1 request nhanh trực tiếp
+        const response = await fetch("http://localhost:8000/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            mode,
+            instruct: mode === "design" ? instruct : null,
+            cfg_value,
+            normalize: false,
+            voice_id: mode === "clone" ? selectedVoiceId : null,
+            seed,
+            speed,
+            pitch,
+            format: useTTSStore.getState().audioFormat,
+          }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || "Lỗi kết nối đến máy chủ API");
+        }
+
+        const data = await response.json();
+        setAudioUrl(data.audio_url);
+
+        const singleBlock: ScriptBlock = {
+          id: "seg_" + Math.random().toString(36).substring(2, 9),
+          text: text.trim(),
+          voiceId: mode === "clone" ? selectedVoiceId : null,
+          voiceName:
+            mode === "clone"
+              ? (voices.find((v) => v.id === selectedVoiceId)?.name || "Mặc định")
+              : "Voice Design",
+          speed,
+          pitch,
+          pauseAfter: sentences[0]?.pauseAfter || pauseSettings.period,
+          status: "ready",
+          audioUrl: data.audio_url,
+          filename: data.filename,
+        };
+        saveStudioBlocks([singleBlock]);
+
+        addHistory({
           text,
+          url: data.audio_url,
+          projectId: selectedProjectId || undefined,
+          voiceId: mode === "clone" ? selectedVoiceId : null,
+          voiceName:
+            mode === "clone"
+              ? (voices.find((v) => v.id === selectedVoiceId)?.name || "Mặc định")
+              : mode === "design"
+              ? `Design: ${instruct.slice(0, 20) || "Tùy chỉnh"}`
+              : "Tự động (Auto)",
           mode,
-          instruct: mode === "design" ? instruct : null,
+          instruct,
           cfg_value,
-          normalize: false,
-          voice_id: mode === "clone" ? selectedVoiceId : null,
           seed,
           speed,
           pitch,
-          format: useTTSStore.getState().audioFormat,
-        }),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Lỗi kết nối đến máy chủ API");
-      }
-
-      const data = await response.json();
-
-      // Hoàn thành tiến trình
-      setAudioUrl(data.audio_url);
-
-      addHistory({
-        text,
-        url: data.audio_url,
-        projectId: selectedProjectId || undefined,
-        voiceId: mode === "clone" ? selectedVoiceId : null,
-        voiceName:
-          mode === "clone"
-            ? (voices.find((v) => v.id === selectedVoiceId)?.name || "Mặc định")
-            : mode === "design"
-            ? `Design: ${instruct.slice(0, 20) || "Tùy chỉnh"}`
-            : "Tự động (Auto)",
-        mode,
-        instruct,
-        cfg_value,
-        seed,
-        speed,
-        pitch,
-      });
-
-      if (data.message && data.message.includes("Cache Hit")) {
-        toast.success("Thành công! Tái sử dụng âm thanh từ Cache (0ms).", {
-          id: toastId,
-          icon: "⚡",
         });
+
+        toast.success("Thành công! Đã tạo âm thanh mới.", { id: toastId });
       } else {
-        toast.success("Thành công! Đã tạo giọng nói mới.", { id: toastId });
+        // Có từ 2 câu trở lên: sinh từng phân đoạn và ghép thành Master Audio
+        toast.loading(`Đang xử lý ${sentences.length} phân đoạn câu...`, { id: toastId });
+
+        const newBlocks: ScriptBlock[] = sentences.map((s, idx) => ({
+          id: `seg_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+          text: s.text,
+          voiceId: mode === "clone" ? selectedVoiceId : null,
+          voiceName:
+            mode === "clone"
+              ? (voices.find((v) => v.id === selectedVoiceId)?.name || "Mặc định")
+              : "Voice Design",
+          speed,
+          pitch,
+          pauseAfter: s.pauseAfter,
+          status: "rendering",
+        }));
+        saveStudioBlocks(newBlocks);
+        setGenerationProgress({ current: 0, total: sentences.length });
+
+        let completedBlocks: ScriptBlock[] = [...newBlocks];
+
+        for (let i = 0; i < sentences.length; i++) {
+          setGenerationProgress({ current: i + 1, total: sentences.length });
+
+          try {
+            const res = await fetch("http://localhost:8000/api/tts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                text: sentences[i].text,
+                mode,
+                instruct: mode === "design" ? instruct : null,
+                cfg_value,
+                normalize: false,
+                voice_id: mode === "clone" ? selectedVoiceId : null,
+                seed,
+                speed,
+                pitch,
+                format: useTTSStore.getState().audioFormat || "mp3",
+              }),
+            });
+
+            if (res.ok) {
+              const bData = await res.json();
+              completedBlocks = completedBlocks.map((b, bIdx) =>
+                bIdx === i
+                  ? {
+                      ...b,
+                      status: "ready" as const,
+                      audioUrl: bData.audio_url,
+                      filename: bData.filename,
+                    }
+                  : b,
+              );
+              saveStudioBlocks(completedBlocks);
+            } else {
+              completedBlocks = completedBlocks.map((b, bIdx) =>
+                bIdx === i ? { ...b, status: "error" as const, error: "Lỗi render" } : b,
+              );
+              saveStudioBlocks(completedBlocks);
+            }
+          } catch (e: any) {
+            completedBlocks = completedBlocks.map((b, bIdx) =>
+              bIdx === i ? { ...b, status: "error" as const, error: e.message } : b,
+            );
+            saveStudioBlocks(completedBlocks);
+          }
+        }
+
+        // Tự động ghép Master Audio
+        const readyBlocks = completedBlocks.filter(
+          (b) => b.status === "ready" && (b.filename || b.audioUrl),
+        );
+
+        if (readyBlocks.length > 0) {
+          const stitchRes = await fetch("http://localhost:8000/api/tts/stitch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              blocks: readyBlocks.map((b) => ({
+                filename: b.filename || b.audioUrl!.split("/").pop()!,
+                pause_after: typeof b.pauseAfter === "number" ? b.pauseAfter : pauseSettings.period,
+                text: b.text,
+              })),
+              format: useTTSStore.getState().audioFormat || "mp3",
+              project_name: "Studio_Master",
+            }),
+          });
+
+          if (stitchRes.ok) {
+            const stitchData = await stitchRes.json();
+            setAudioUrl(stitchData.audio_url);
+
+            addHistory({
+              text,
+              url: stitchData.audio_url,
+              projectId: selectedProjectId || undefined,
+              voiceId: mode === "clone" ? selectedVoiceId : null,
+              voiceName:
+                mode === "clone"
+                  ? (voices.find((v) => v.id === selectedVoiceId)?.name || "Mặc định")
+                  : "Voice Design",
+              mode,
+              instruct,
+              cfg_value,
+              seed,
+              speed,
+              pitch,
+            });
+
+            toast.success(`Hoàn thành tổng hợp ${sentences.length} phân đoạn câu!`, { id: toastId });
+          } else {
+            toast.error("Đã tạo xong các câu nhưng ghép nối thất bại", { id: toastId });
+          }
+        } else {
+          throw new Error("Không thể tạo các phân đoạn âm thanh");
+        }
       }
     } catch (error: any) {
       toast.error(`Thất bại: ${error.message}`, { id: toastId });
@@ -741,12 +1230,32 @@ export default function Studio() {
                   Văn bản đầu vào
                 </label>
 
-                {/* Non-verbal symbols toolbar */}
-                <div className="flex flex-wrap items-center gap-1.5 2k:gap-2">
-                  <span className="text-[11px] 2k:text-xs font-label-caps text-on-surface-variant/70 mr-1 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[14px] 2k:text-[16px] text-primary">sentiment_satisfied</span>
-                    Thẻ biểu cảm:
-                  </span>
+                {/* Action toolbars: Pause settings & Emotion tags */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Nút Thiết lập ngắt nghỉ (theo phong cách Vbee) */}
+                  <button
+                    type="button"
+                    onClick={() => setIsPauseSettingsOpen(true)}
+                    className="px-2.5 2k:px-3 py-1 rounded-lg text-[11px] 2k:text-xs font-label-caps bg-surface-dim hover:bg-primary/20 text-on-surface hover:text-primary border border-white/10 hover:border-primary/30 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 group"
+                    title="Thiết lập ngắt nghỉ: Dấu chấm, Dấu phẩy, Dấu chấm phẩy, Xuống dòng"
+                  >
+                    <span className="material-symbols-outlined text-primary text-[17px] group-hover:scale-110 transition-transform">
+                      format_quote
+                    </span>
+                    <span className="font-semibold">Thiết lập ngắt nghỉ</span>
+                    <span className="bg-primary/10 text-primary px-1.5 py-0.2 rounded text-[10px] font-mono-data border border-primary/20">
+                      .{pauseSettings.period}s | ↵{pauseSettings.newline}s
+                    </span>
+                  </button>
+
+                  <div className="h-4 w-[1px] bg-white/10 hidden sm:block"></div>
+
+                  {/* Non-verbal symbols toolbar */}
+                  <div className="flex flex-wrap items-center gap-1.5 2k:gap-2">
+                    <span className="text-[11px] 2k:text-xs font-label-caps text-on-surface-variant/70 mr-0.5 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px] 2k:text-[16px] text-primary">sentiment_satisfied</span>
+                      Biểu cảm:
+                    </span>
                   {NON_VERBAL_SYMBOLS.map((s, idx) => (
                     <button
                       key={idx}
@@ -761,8 +1270,9 @@ export default function Studio() {
                   ))}
                 </div>
               </div>
+            </div>
 
-              <textarea
+            <textarea
                 ref={textareaRef}
                 id="script-input"
                 className="w-full h-56 2k:h-72 bg-surface-dim/80 backdrop-blur border border-white/10 rounded-xl 2k:rounded-2xl p-5 2k:p-6 text-on-surface text-sm 2k:text-base 2k:leading-relaxed focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none placeholder:text-on-surface-variant/50 font-body-md shadow-inner"
@@ -792,7 +1302,9 @@ export default function Studio() {
                       <span className="material-symbols-outlined animate-spin text-[20px]">
                         progress_activity
                       </span>
-                      Đang xử lý âm thanh...
+                      {generationProgress.total > 1
+                        ? `Đang tổng hợp phân đoạn (${generationProgress.current}/${generationProgress.total})...`
+                        : "Đang xử lý âm thanh..."}
                     </span>
                     <div className="flex items-center gap-2 bg-surface-dim px-3 py-1.5 rounded-lg border border-primary/20">
                       <span className="material-symbols-outlined text-[16px] text-primary">
@@ -810,79 +1322,183 @@ export default function Studio() {
 
             {/* Output Area (in-place) */}
             {audioUrl && (
-              <div className="flex flex-col gap-4 bg-primary/5 p-5 rounded-xl border border-primary/20 animate-in slide-in-from-bottom-4 fade-in duration-500 shadow-[0_0_20px_rgba(245,158,11,0.05)] mt-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-label-caps text-label-caps text-primary flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px]">
-                      headphones
+              <div className="flex flex-col gap-6 mt-4 animate-in slide-in-from-bottom-4 fade-in duration-500">
+                {/* Trình phát Audio Tổng thể */}
+                <div className="flex flex-col gap-4 bg-primary/5 p-5 2k:p-6 rounded-2xl border border-primary/20 shadow-[0_0_20px_rgba(245,158,11,0.08)]">
+                  <div className="flex items-center justify-between">
+                    <span className="font-label-caps text-label-caps text-primary flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[18px]">
+                        headphones
+                      </span>
+                      Âm thanh đầu ra (Bản hoàn chỉnh)
                     </span>
-                    Âm thanh đầu ra
-                  </span>
 
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 bg-surface-dim px-2 py-1 rounded border border-white/10 text-on-surface-variant font-mono-data text-[10px]">
-                      <span className="material-symbols-outlined text-[14px]">
-                        timer
-                      </span>
-                      {String(Math.floor(elapsedTime / 60)).padStart(2, "0")}:
-                      {String(elapsedTime % 60).padStart(2, "0")}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 bg-surface-dim px-2.5 py-1 rounded-lg border border-white/10 text-on-surface-variant font-mono-data text-[10px]">
+                        <span className="material-symbols-outlined text-[14px]">
+                          timer
+                        </span>
+                        {String(Math.floor(elapsedTime / 60)).padStart(2, "0")}:
+                        {String(elapsedTime % 60).padStart(2, "0")}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (!audioUrl) return;
+                          const latestRecord = history[0] || {
+                            id: `voice_${Date.now()}`,
+                            text,
+                            url: audioUrl,
+                            timestamp: Date.now(),
+                            voiceName: voices.find((v) => v.id === selectedVoiceId)?.name || "Giọng đọc mới",
+                          };
+                          setPendingVoiceForVideo(latestRecord);
+                          toast.success("Đang chuyển sang Video Studio với giọng đọc này!");
+                          navigate("/autocaption");
+                        }}
+                        className="px-3.5 py-1.5 bg-primary/20 hover:bg-primary hover:text-black text-primary border border-primary/40 rounded-lg font-label-caps text-xs transition-all shadow-sm flex items-center gap-1.5 font-semibold group"
+                        title="Chuyển sang làm video với giọng đọc này trong Auto Caption Studio"
+                      >
+                        <span className="material-symbols-outlined text-[16px] group-hover:rotate-6 transition-transform">
+                          movie_edit
+                        </span>
+                        LÀM VIDEO NGAY
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (!audioUrl) return;
+                          const filename =
+                            audioUrl.split("/").pop() ||
+                            `audio.${useTTSStore.getState().audioFormat}`;
+                          downloadAudioFile(audioUrl, filename);
+                        }}
+                        className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-on-surface-variant hover:text-on-surface border border-white/10 rounded-lg font-label-caps text-xs transition-colors shadow-sm flex items-center gap-2 font-medium"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          download
+                        </span>
+                        TẢI VỀ
+                      </button>
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (!audioUrl) return;
-                        const latestRecord = history[0] || {
-                          id: `voice_${Date.now()}`,
-                          text,
-                          url: audioUrl,
-                          timestamp: Date.now(),
-                          voiceName: voices.find((v) => v.id === selectedVoiceId)?.name || "Giọng đọc mới",
-                        };
-                        setPendingVoiceForVideo(latestRecord);
-                        toast.success("Đang chuyển sang Video Studio với giọng đọc này!");
-                        navigate("/autocaption");
-                      }}
-                      className="px-3.5 py-1.5 bg-primary/20 hover:bg-primary hover:text-black text-primary border border-primary/40 rounded-md font-label-caps text-xs transition-all shadow-sm flex items-center gap-1.5 font-semibold group"
-                      title="Chuyển sang làm video với giọng đọc này trong Auto Caption Studio"
-                    >
-                      <span className="material-symbols-outlined text-[16px] group-hover:rotate-6 transition-transform">
-                        movie_edit
-                      </span>
-                      LÀM VIDEO NGAY
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (!audioUrl) return;
-                        const filename =
-                          audioUrl.split("/").pop() ||
-                          `audio.${useTTSStore.getState().audioFormat}`;
-                        downloadAudioFile(audioUrl, filename);
-                      }}
-                      className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-on-surface-variant hover:text-on-surface border border-white/10 rounded-md font-label-caps text-xs transition-colors shadow-sm flex items-center gap-2"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">
-                        download
-                      </span>
-                      TẢI VỀ
-                    </button>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <audio
+                      src={audioUrl}
+                      controls
+                      className="w-full h-10 outline-none"
+                      autoPlay
+                      style={{ colorScheme: "dark" }}
+                    ></audio>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <audio
-                    src={audioUrl}
-                    controls
-                    className="w-full h-10 outline-none"
-                    autoPlay
-                    style={{ colorScheme: "dark" }}
-                  ></audio>
-                </div>
+
+                {/* Danh sách phân đoạn câu (Tùy chọn chỉnh sửa & cập nhật lại nếu cần) */}
+                {studioBlocks.length > 0 && (
+                  <div className="flex flex-col gap-4 p-5 rounded-2xl bg-surface-dim/60 border border-white/10 shadow-xl">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                          <Layers className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-label-caps text-xs text-on-surface font-semibold">
+                              Chi tiết phân đoạn câu
+                            </h4>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono-data font-bold bg-primary/15 text-primary border border-primary/20">
+                              {studioBlocks.length} câu
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-on-surface-variant/70">
+                            Nghe thấy câu nào chưa vừa ý? Bạn có thể chỉnh sửa và render lại riêng câu đó bên dưới.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Nút cập nhật lại Audio chính khi có câu vừa được render lại */}
+                        {hasModifiedSegments && (
+                          <button
+                            type="button"
+                            onClick={handleUpdateMasterAudio}
+                            disabled={isUpdatingMaster}
+                            className="px-3.5 py-1.5 rounded-lg bg-primary text-black font-semibold text-xs font-label-caps flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.4)] animate-pulse hover:brightness-110 transition-all"
+                            title="Ghép lại các câu và cập nhật vào file âm thanh chính ở trên"
+                          >
+                            {isUpdatingMaster ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            )}
+                            ⚡ CẬP NHẬT AUDIO CHÍNH
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => setIsSaveProjectModalOpen(true)}
+                          className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-on-surface-variant hover:text-on-surface border border-white/10 text-xs font-label-caps flex items-center gap-1.5 transition-all"
+                          title="Lưu các phân đoạn này vào một Dự án trong Thư viện"
+                        >
+                          <FolderPlus className="w-3.5 h-3.5" />
+                          Lưu vào Dự án
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsSegmentsCollapsed(!isSegmentsCollapsed)}
+                          className="p-1.5 rounded-lg hover:bg-white/10 text-on-surface-variant transition-colors"
+                          title={isSegmentsCollapsed ? "Mở rộng danh sách" : "Thu gọn danh sách"}
+                        >
+                          {isSegmentsCollapsed ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronUp className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Danh sách các câu gọn gàng */}
+                    {!isSegmentsCollapsed && (
+                      <div className="flex flex-col gap-2">
+                        {studioBlocks.map((block, idx) => (
+                          <ScriptBlockItem
+                            key={block.id}
+                            block={block}
+                            index={idx}
+                            total={studioBlocks.length}
+                            voices={voices}
+                            isPlaying={playingStudioBlockId === block.id}
+                            onPlay={() => handlePlayStudioBlockPreview(block)}
+                            onStop={handleStopStudioPlayback}
+                            onUpdate={(updated) => handleUpdateStudioBlock(block.id, updated)}
+                            onDelete={() => handleDeleteStudioBlock(block.id)}
+                            onMoveUp={() => handleMoveStudioBlock(idx, -1)}
+                            onMoveDown={() => handleMoveStudioBlock(idx, 1)}
+                            onInsertBelow={() => handleAddStudioBlock(idx)}
+                            onRender={() => renderSingleStudioBlock(block.id)}
+                          />
+                        ))}
+
+                        <button
+                          type="button"
+                          onClick={() => handleAddStudioBlock()}
+                          className="py-2 px-3 rounded-lg border border-dashed border-white/10 hover:border-primary/40 bg-white/5 hover:bg-primary/5 text-on-surface-variant hover:text-primary transition-all flex items-center justify-center gap-1.5 text-xs font-label-caps group shadow-inner mt-1"
+                        >
+                          <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                          Thêm câu mới (+1)
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Column: Settings Sidebar */}
         {/* Right Column: Settings */}
         <div className="lg:col-span-4 flex flex-col gap-6 2k:gap-8 sticky top-6">
           <div className="glass-card rounded-2xl p-6 2k:p-8 shadow-2xl border border-white/5 flex flex-col gap-8 2k:gap-9 relative overflow-hidden">
@@ -1076,6 +1692,224 @@ export default function Studio() {
           </div>
         </div>
       </div>
+
+      {/* Modal Lưu kịch bản vào Dự án */}
+      {isSaveProjectModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="glass-card rounded-2xl max-w-lg w-full p-6 border border-white/10 shadow-2xl flex flex-col gap-5">
+            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                  <FolderPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-label-caps text-sm text-on-surface font-semibold">
+                    Lưu kịch bản vào Dự án
+                  </h3>
+                  <p className="text-[11px] text-on-surface-variant/70">
+                    Chuyển {studioBlocks.length} phân đoạn câu hiện tại vào thư viện Dự án
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSaveProjectModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-on-surface-variant transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Tab chuyển đổi: Tạo mới vs Thêm vào có sẵn */}
+            <div className="flex rounded-xl bg-surface-dim p-1 border border-white/10 shadow-inner">
+              <button
+                type="button"
+                onClick={() => setSaveProjectTab("new")}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-label-caps font-medium transition-all ${
+                  saveProjectTab === "new"
+                    ? "bg-primary text-black font-semibold shadow-sm"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                Tạo dự án mới
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveProjectTab("existing");
+                  if (projects.length > 0 && !targetExistingProjectId) {
+                    setTargetExistingProjectId(projects[0].id);
+                  }
+                }}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-label-caps font-medium transition-all flex items-center justify-center gap-1.5 ${
+                  saveProjectTab === "existing"
+                    ? "bg-primary text-black font-semibold shadow-sm"
+                    : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                <span>Thêm vào dự án có sẵn</span>
+                {projects.length > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono-data font-bold ${
+                      saveProjectTab === "existing"
+                        ? "bg-black/20 text-black"
+                        : "bg-white/10 text-on-surface"
+                    }`}
+                  >
+                    {projects.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStudioAsProject} className="flex flex-col gap-4">
+              {saveProjectTab === "new" ? (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-label-caps text-on-surface-variant">
+                      Tên dự án mới *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="VD: Kịch bản thuyết minh tập 1..."
+                      value={newProjectTitle}
+                      onChange={(e) => setNewProjectTitle(e.target.value)}
+                      className="bg-surface-dim border border-white/10 rounded-xl px-4 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-label-caps text-on-surface-variant">
+                      Ghi chú (Tùy chọn)
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder="Ghi chú thêm về nội dung, nhân vật..."
+                      value={newProjectNotes}
+                      onChange={(e) => setNewProjectNotes(e.target.value)}
+                      className="bg-surface-dim border border-white/10 rounded-xl p-3 text-xs text-on-surface focus:outline-none focus:border-primary transition-colors resize-none"
+                    />
+                  </div>
+                </>
+              ) : projects.length === 0 ? (
+                <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center flex flex-col items-center gap-2">
+                  <p className="text-xs text-on-surface-variant">
+                    Bạn chưa có dự án nào trong Thư viện.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSaveProjectTab("new")}
+                    className="text-xs font-label-caps text-primary hover:underline"
+                  >
+                    Bấm vào đây để tạo dự án đầu tiên
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Chọn dự án đích */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-label-caps text-on-surface-variant">
+                      Chọn dự án đích *
+                    </label>
+                    <select
+                      value={targetExistingProjectId}
+                      onChange={(e) => setTargetExistingProjectId(e.target.value)}
+                      className="bg-surface-dim border border-white/10 rounded-xl px-4 py-2.5 text-sm text-on-surface focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                    >
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id} className="bg-surface-variant text-on-surface">
+                          {p.name} ({p.blocks?.length || 0} phân đoạn)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Chế độ thêm phân đoạn */}
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-label-caps text-on-surface-variant">
+                      Cách thức lưu vào dự án
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label
+                        className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                          saveExistingMode === "append"
+                            ? "bg-primary/10 border-primary/40 text-on-surface"
+                            : "bg-surface-dim/70 border-white/10 text-on-surface-variant hover:border-white/20"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="saveExistingMode"
+                          value="append"
+                          checked={saveExistingMode === "append"}
+                          onChange={() => setSaveExistingMode("append")}
+                          className="mt-0.5 accent-primary"
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold text-on-surface">
+                            Nối tiếp vào sau
+                          </span>
+                          <span className="text-[10px] text-on-surface-variant">
+                            Giữ câu cũ, thêm +{studioBlocks.length} câu này vào cuối
+                          </span>
+                        </div>
+                      </label>
+
+                      <label
+                        className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                          saveExistingMode === "replace"
+                            ? "bg-primary/10 border-primary/40 text-on-surface"
+                            : "bg-surface-dim/70 border-white/10 text-on-surface-variant hover:border-white/20"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="saveExistingMode"
+                          value="replace"
+                          checked={saveExistingMode === "replace"}
+                          onChange={() => setSaveExistingMode("replace")}
+                          className="mt-0.5 accent-primary"
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold text-on-surface">
+                            Ghi đè kịch bản
+                          </span>
+                          <span className="text-[10px] text-on-surface-variant">
+                            Thay thế toàn bộ bằng {studioBlocks.length} câu này
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSaveProjectModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-label-caps text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-primary text-black font-semibold rounded-xl text-xs font-label-caps hover:brightness-110 transition-all shadow-md"
+                >
+                  {saveProjectTab === "new" ? "Lưu Dự án mới" : "Lưu vào Dự án này"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Thiết lập ngắt nghỉ (theo phong cách Vbee) */}
+      <PauseSettingsModal
+        isOpen={isPauseSettingsOpen}
+        onClose={() => setIsPauseSettingsOpen(false)}
+      />
     </div>
   );
 }
