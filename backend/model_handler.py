@@ -51,6 +51,9 @@ ENABLE_EMPTY_CACHE = os.getenv("ENABLE_EMPTY_CACHE", "false").lower() in ("true"
 CUDNN_BENCHMARK = os.getenv("CUDNN_BENCHMARK", "true").lower() in ("true", "1", "yes")
 AUDIO_MP3_BACKEND = os.getenv("AUDIO_MP3_BACKEND", "auto").lower().strip()
 
+# Backend mã hóa khi lưu file MP3: 'auto', 'soundfile', 'torchaudio'
+AUDIO_MP3_BACKEND = os.getenv("AUDIO_MP3_BACKEND", "auto").strip().lower()
+
 _has_warmed_up = False
 
 
@@ -245,8 +248,8 @@ def sanitize_instruct(instruct: str | None) -> str | None:
     return ", ".join(cleaned_tags)
 
 
-def save_audio_file(
-    output_path: Path | str,
+def _save_audio_file(
+    output_path: Path,
     audio: np.ndarray,
     sample_rate: int = SAMPLE_RATE,
     audio_format: str = "mp3",
