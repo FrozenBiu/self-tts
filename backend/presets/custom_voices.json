@@ -23,7 +23,7 @@
     "gender": "male",
     "description": "Giọng tự tạo",
     "icon": "record_voice_over",
-    "prompt_text": "",
+    "prompt_text": "Xin kính chào quý bạn và các vị, mong rằng giọng nói này sẽ phù hợp với bất kỳ dự án nào của bạn. Cảm ơn đã lựa chọn. Hãy thử ngay nhé!",
     "url": "http://localhost:8000/presets/custom/custom_0bc4de90.wav",
     "has_prompt_pt": true
   },
@@ -33,7 +33,7 @@
     "gender": "female",
     "description": "Giọng tự tạo",
     "icon": "record_voice_over",
-    "prompt_text": "",
+    "prompt_text": "Chúng ta đang sống trong thời đại của trí tuệ nhân tạo. Mọi lĩnh vực từ giáo dục, y tế đến sáng tạo nghệ thuật đều đang thay đổi nhanh chóng.",
     "url": "http://localhost:8000/presets/custom/custom_3f916630.wav",
     "has_prompt_pt": true
   }

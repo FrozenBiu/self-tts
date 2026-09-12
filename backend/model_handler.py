@@ -106,10 +106,27 @@ def load_model() -> None:
 
 
 def get_model() -> OmniVoice:
-    """Trả về OmniVoice instance đã load. Raise RuntimeError nếu chưa load."""
+    """Trả về OmniVoice instance đã load. Tự động load nếu chưa khởi tạo."""
+    global _model
     if _model is None:
-        raise RuntimeError("Mô hình OmniVoice chưa được khởi tạo. Vui lòng kiểm tra startup.")
+        logger.info("🔄 OmniVoice chưa tải hoặc đã bị offload, tiến hành nạp lại...")
+        load_model()
     return _model
+
+
+def unload_model() -> None:
+    """Giải phóng OmniVoice khỏi VRAM GPU."""
+    global _model, _has_warmed_up
+    if _model is not None:
+        logger.info("🧹 Đang giải phóng OmniVoice khỏi bộ nhớ GPU VRAM...")
+        del _model
+        _model = None
+        _has_warmed_up = False
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    logger.info("✅ Đã dọn dẹp bộ nhớ đệm VRAM của OmniVoice.")
 
 
 def create_voice_prompt(ref_audio: str, ref_text: str | None = None) -> VoiceClonePrompt:

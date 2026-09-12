@@ -224,6 +224,7 @@ export default function ProjectDetail() {
           pitch: target.pitch || 0.0,
           format: "mp3",
           enhance_audio: useTTSStore.getState().enhanceAudio,
+          engine: useTTSStore.getState().engine || "omnivoice",
         }),
       });
 
@@ -323,6 +324,7 @@ export default function ProjectDetail() {
             pitch: blk.pitch || 0.0,
             format: "mp3",
             enhance_audio: useTTSStore.getState().enhanceAudio,
+            engine: useTTSStore.getState().engine || "omnivoice",
           }),
         });
 
