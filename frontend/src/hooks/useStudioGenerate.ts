@@ -34,7 +34,14 @@ export function useStudioGenerate() {
     addHistory,
   } = useTTSStore();
 
-  const [elapsedTime, setElapsedTime] = useState(0);
+  const [elapsedTime, setElapsedTime] = useState(() => {
+    try {
+      const saved = localStorage.getItem("tts_master_elapsed_time");
+      return saved ? parseInt(saved, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
   const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -102,6 +109,9 @@ export function useStudioGenerate() {
     const toastId = toast.loading("Đang khởi tạo mô hình...", { duration: 30000 });
 
     setElapsedTime(0);
+    try {
+      localStorage.removeItem("tts_master_elapsed_time");
+    } catch {}
     cleanupTimer();
     timerRef.current = setInterval(() => {
       setElapsedTime((prev) => prev + 1);
@@ -139,6 +149,9 @@ export function useStudioGenerate() {
 
         const data = await response.json();
         setAudioUrl(data.audio_url);
+        try {
+          localStorage.setItem("tts_master_elapsed_time", String(elapsedTime));
+        } catch {}
 
         const singleBlock: ScriptBlock = {
           id: "seg_" + Math.random().toString(36).substring(2, 9),
@@ -269,6 +282,9 @@ export function useStudioGenerate() {
           if (stitchRes.ok) {
             const stitchData = await stitchRes.json();
             setAudioUrl(stitchData.audio_url);
+            try {
+              localStorage.setItem("tts_master_elapsed_time", String(elapsedTime));
+            } catch {}
 
             addHistory({
               text,

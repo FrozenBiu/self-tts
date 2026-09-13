@@ -48,7 +48,7 @@ export function MainLayout() {
               {/* Trạng thái bình thường: Logo OmniVoice */}
               <div className="w-11 h-11 rounded-2xl bg-surface-variant flex items-center justify-center text-primary border border-white/10 shadow-sm transition-all duration-200 group-hover:opacity-0 group-hover:scale-90 absolute inset-0">
                 <span className="material-symbols-outlined text-2xl text-primary">
-                  graphic_eq
+                    diamond
                 </span>
               </div>
 
@@ -71,7 +71,7 @@ export function MainLayout() {
               >
                 <div className="w-11 h-11 rounded-2xl bg-surface-variant flex items-center justify-center border border-white/10 shadow-sm text-primary transition-transform duration-200 group-hover:border-primary/40 group-hover:scale-105 shrink-0">
                   <span className="material-symbols-outlined text-2xl text-primary">
-                    graphic_eq
+                      diamond
                   </span>
                 </div>
                 <div className="flex flex-col overflow-hidden whitespace-nowrap">

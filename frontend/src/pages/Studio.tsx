@@ -89,6 +89,56 @@ export default function Studio() {
             (k2-fsa)
           </p>
         </div>
+
+        {/* Quick Tools */}
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setIsPauseSettingsOpen(true)}
+            className="group flex items-center gap-2 px-4 2k:px-5 py-2 2k:py-2.5 rounded-xl
+              bg-surface-dim border border-white/8 hover:border-primary/40
+              hover:bg-primary/5 transition-all duration-300 shadow-sm"
+            title="Thiết lập thời gian ngắt nghỉ giữa các câu"
+          >
+            <span className="material-symbols-outlined text-[17px] 2k:text-[19px] text-primary/70 group-hover:text-primary transition-colors">
+              timer
+            </span>
+            <span className="font-label-caps text-xs 2k:text-sm text-on-surface-variant group-hover:text-on-surface transition-colors hidden sm:inline">
+              Thiết lập ngắt nghỉ
+            </span>
+            <span className="flex items-center gap-1 ml-1">
+              <span className="text-[10px] 2k:text-xs font-mono text-primary/60 bg-primary/10 px-1.5 py-0.5 rounded-md border border-primary/20">
+                {pauseSettings.period.toFixed(1)}s
+              </span>
+              <span className="text-[10px] 2k:text-xs font-mono text-primary/60 bg-primary/10 px-1.5 py-0.5 rounded-md border border-primary/20">
+                +{pauseSettings.newline.toFixed(1)}s
+              </span>
+            </span>
+          </button>
+
+          <div className="w-px h-6 bg-white/10" />
+
+          <button
+            type="button"
+            onClick={() => setIsPronunciationModalOpen(true)}
+            className="group flex items-center gap-2 px-4 2k:px-5 py-2 2k:py-2.5 rounded-xl
+              bg-surface-dim border border-white/8 hover:border-amber-400/40
+              hover:bg-amber-400/5 transition-all duration-300 shadow-sm"
+            title="Quản lý từ điển cách đọc tùy chỉnh"
+          >
+            <span className="material-symbols-outlined text-[17px] 2k:text-[19px] text-amber-400/70 group-hover:text-amber-400 transition-colors">
+              menu_book
+            </span>
+            <span className="font-label-caps text-xs 2k:text-sm text-on-surface-variant group-hover:text-on-surface transition-colors hidden sm:inline">
+              Cách đọc
+            </span>
+            {pronunciationWords.length > 0 && (
+              <span className="ml-1 text-[10px] 2k:text-xs font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-md border border-amber-400/20">
+                {pronunciationWords.length}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 2k:gap-10 items-start">
@@ -168,8 +218,6 @@ export default function Studio() {
               text={text}
               onChangeText={setText}
               textareaRef={textareaRef}
-              onOpenPauseModal={() => setIsPauseSettingsOpen(true)}
-              onOpenPronunciationModal={() => setIsPronunciationModalOpen(true)}
               pauseSettings={pauseSettings}
               pronunciationWords={pronunciationWords}
               isLoading={generator.isLoading}

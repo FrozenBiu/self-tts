@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
 import { API_BASE_URL } from "../constants/api";
+import { globalAudio } from "../utils/audioCoordinator";
 
 export function useStudioBlocks() {
   const { pronunciationWords, enhanceAudio } = useTTSStore();
@@ -12,7 +13,20 @@ export function useStudioBlocks() {
     JSON.parse(localStorage.getItem("tts_studio_blocks") || "[]"),
   );
   const [isSegmentsCollapsed, setIsSegmentsCollapsed] = useState(false);
-  const [hasModifiedSegments, setHasModifiedSegments] = useState(false);
+  const [hasModifiedSegments, setHasModifiedSegments] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("tts_has_modified_segments") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const updateHasModifiedSegments = (val: boolean) => {
+    setHasModifiedSegments(val);
+    try {
+      localStorage.setItem("tts_has_modified_segments", String(val));
+    } catch {}
+  };
   const [isUpdatingMaster, setIsUpdatingMaster] = useState(false);
   const [playingStudioBlockId, setPlayingStudioBlockId] = useState<string | null>(null);
 
@@ -32,6 +46,7 @@ export function useStudioBlocks() {
   };
 
   const cleanup = () => {
+    globalAudio.stopAll();
     if (studioSequenceAudioRef.current) {
       studioSequenceAudioRef.current.pause();
     }
@@ -62,6 +77,7 @@ export function useStudioBlocks() {
     } else {
       saveStudioBlocks([...studioBlocks, newBlock]);
     }
+    updateHasModifiedSegments(true);
   };
 
   const handleDeleteStudioBlock = (blockId: string) => {
@@ -72,7 +88,17 @@ export function useStudioBlocks() {
         fetch(`${API_BASE_URL}/api/tts/${fn}`, { method: "DELETE" }).catch(() => {});
       }
     }
-    saveStudioBlocks(studioBlocks.filter((b) => b.id !== blockId));
+    const remaining = studioBlocks.filter((b) => b.id !== blockId);
+    saveStudioBlocks(remaining);
+    if (remaining.length === 0) {
+      useTTSStore.getState().setAudioUrl(null);
+      updateHasModifiedSegments(false);
+      try {
+        localStorage.removeItem("tts_master_elapsed_time");
+      } catch {}
+    } else {
+      updateHasModifiedSegments(true);
+    }
     toast.success("Đã xóa phân đoạn");
   };
 
@@ -81,6 +107,15 @@ export function useStudioBlocks() {
       b.id === blockId ? { ...b, ...updatedFields } : b,
     );
     saveStudioBlocks(updated);
+    if (
+      updatedFields.text !== undefined ||
+      updatedFields.speed !== undefined ||
+      updatedFields.pitch !== undefined ||
+      updatedFields.pauseAfter !== undefined ||
+      updatedFields.voiceId !== undefined
+    ) {
+      updateHasModifiedSegments(true);
+    }
   };
 
   const handleMoveStudioBlock = (index: number, direction: -1 | 1) => {
@@ -91,6 +126,7 @@ export function useStudioBlocks() {
     const [moved] = updated.splice(index, 1);
     updated.splice(targetIndex, 0, moved);
     saveStudioBlocks(updated);
+    updateHasModifiedSegments(true);
   };
 
   // ── Render single block ──────────────────────────────────────────────────
@@ -163,7 +199,7 @@ export function useStudioBlocks() {
         fetch(`${API_BASE_URL}/api/tts/${oldFilename}`, { method: "DELETE" }).catch(() => {});
       }
 
-      setHasModifiedSegments(true);
+      updateHasModifiedSegments(true);
       toast.success(
         "Render phân đoạn thành công! Bạn có thể bấm 'Cập nhật Audio chính' để nghe bản hoàn chỉnh.",
       );
@@ -216,7 +252,7 @@ export function useStudioBlocks() {
 
       const data = await res.json();
       setAudioUrl(data.audio_url);
-      setHasModifiedSegments(false);
+      updateHasModifiedSegments(false);
       toast.success(`Đã cập nhật Audio chính thành công! (${data.total_duration}s)`, {
         id: toastId,
       });
@@ -240,6 +276,12 @@ export function useStudioBlocks() {
     setPlayingStudioBlockId(block.id);
     studioSequenceAudioRef.current.src = block.audioUrl;
     studioSequenceAudioRef.current.onended = () => setPlayingStudioBlockId(null);
+
+    // Dừng các nguồn audio khác (Master audio, Voice sample preview...)
+    globalAudio.play(studioSequenceAudioRef.current, () => {
+      setPlayingStudioBlockId(null);
+    });
+
     studioSequenceAudioRef.current.play().catch((e) => {
       console.warn("Lỗi phát:", e);
       setPlayingStudioBlockId(null);
@@ -247,6 +289,7 @@ export function useStudioBlocks() {
   };
 
   const handleStopStudioPlayback = () => {
+    globalAudio.stopAll();
     if (studioSequenceAudioRef.current) {
       studioSequenceAudioRef.current.pause();
       studioSequenceAudioRef.current.currentTime = 0;

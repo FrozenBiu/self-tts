@@ -85,15 +85,15 @@ export function ScriptBlockItem({
         isPlaying
           ? "border-primary bg-primary/10 shadow-[0_0_20px_rgba(245,158,11,0.15)] ring-1 ring-primary/40"
           : isRendering
-          ? "border-amber-500/40 bg-amber-500/5"
-          : "border-white/5 bg-surface-dim hover:border-white/15 hover:bg-surface-dim/90"
+            ? "border-amber-500/40 bg-amber-500/5"
+            : "border-white/5 bg-surface-dim hover:border-white/15 hover:bg-surface-dim/90"
       }`}
     >
       {/* Row 1: Index tag + Text Input + Fast Action Tools */}
       <div className="flex items-start gap-2.5">
         {/* Index badge */}
         <span
-          className={`shrink-0 mt-0.5 px-2 py-0.5 rounded-md font-mono-data text-[11px] font-bold ${
+          className={`shrink-0 mt-0.5 px-2 py-0.5 rounded-md font-mono-data text-[12px] font-bold ${
             isPlaying
               ? "bg-primary text-black"
               : "bg-surface-variant/80 text-on-surface-variant border border-white/5"
@@ -180,7 +180,7 @@ export function ScriptBlockItem({
             <select
               value={block.voiceId || ""}
               onChange={(e) => handleVoiceChange(e.target.value)}
-              className="bg-transparent text-[11px] text-on-surface font-medium focus:outline-none cursor-pointer max-w-[120px] truncate"
+              className="bg-transparent text-[11px] text-on-surface font-medium focus:outline-none cursor-pointer max-w-[140px] truncate"
             >
               <option value="" className="bg-surface-dim text-on-surface">
                 Mặc định
@@ -214,7 +214,7 @@ export function ScriptBlockItem({
                   pauseAfter: Math.max(0, parseFloat(e.target.value) || 0),
                 })
               }
-              className="w-11 bg-surface-dim text-center text-[11px] text-primary font-bold rounded px-0.5 py-0 border border-white/10 focus:outline-none"
+              className="min-w-12 max-w-15 bg-surface-dim text-center text-[11px] text-primary font-bold rounded px-0.5 py-0 border border-white/10 focus:outline-none"
             />
             <span>s</span>
           </div>
@@ -303,56 +303,56 @@ export function ScriptBlockItem({
         </div>
       </div>
 
-        {/* Expanded Settings (Speed & Pitch) */}
-        {isEditingSettings && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-surface rounded-xl border border-white/5 animate-in fade-in duration-150">
-            {/* Speed slider */}
-            <div className="flex flex-col gap-1">
-              <div className="flex justify-between text-xs text-on-surface-variant font-mono-data">
-                <span>Tốc độ đọc (Speed)</span>
-                <span className="text-primary font-bold">{block.speed}x</span>
-              </div>
-              <input
-                type="range"
-                min="0.5"
-                max="2.0"
-                step="0.05"
-                value={block.speed}
-                onChange={(e) =>
-                  onUpdate({
-                    speed: parseFloat(e.target.value),
-                    status: block.status === "ready" ? "idle" : block.status,
-                  })
-                }
-                className="w-full accent-primary h-1.5 bg-surface-dim rounded cursor-pointer"
-              />
+      {/* Expanded Settings (Speed & Pitch) */}
+      {isEditingSettings && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-surface rounded-xl border border-white/5 animate-in fade-in duration-150">
+          {/* Speed slider */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between text-xs text-on-surface-variant font-mono-data">
+              <span>Tốc độ đọc (Speed)</span>
+              <span className="text-primary font-bold">{block.speed}x</span>
             </div>
-
-            {/* Pitch slider */}
-            <div className="flex flex-col gap-1">
-              <div className="flex justify-between text-xs text-on-surface-variant font-mono-data">
-                <span>Cao độ (Pitch)</span>
-                <span className="text-primary font-bold">
-                  {block.pitch >= 0 ? `+${block.pitch}` : block.pitch} st
-                </span>
-              </div>
-              <input
-                type="range"
-                min="-12.0"
-                max="12.0"
-                step="0.5"
-                value={block.pitch}
-                onChange={(e) =>
-                  onUpdate({
-                    pitch: parseFloat(e.target.value),
-                    status: block.status === "ready" ? "idle" : block.status,
-                  })
-                }
-                className="w-full accent-primary h-1.5 bg-surface-dim rounded cursor-pointer"
-              />
-            </div>
+            <input
+              type="range"
+              min="0.5"
+              max="2.0"
+              step="0.05"
+              value={block.speed}
+              onChange={(e) =>
+                onUpdate({
+                  speed: parseFloat(e.target.value),
+                  status: block.status === "ready" ? "idle" : block.status,
+                })
+              }
+              className="w-full accent-primary h-1.5 bg-surface-dim rounded cursor-pointer"
+            />
           </div>
-        )}
+
+          {/* Pitch slider */}
+          <div className="flex flex-col gap-1">
+            <div className="flex justify-between text-xs text-on-surface-variant font-mono-data">
+              <span>Cao độ (Pitch)</span>
+              <span className="text-primary font-bold">
+                {block.pitch >= 0 ? `+${block.pitch}` : block.pitch} st
+              </span>
+            </div>
+            <input
+              type="range"
+              min="-12.0"
+              max="12.0"
+              step="0.5"
+              value={block.pitch}
+              onChange={(e) =>
+                onUpdate({
+                  pitch: parseFloat(e.target.value),
+                  status: block.status === "ready" ? "idle" : block.status,
+                })
+              }
+              className="w-full accent-primary h-1.5 bg-surface-dim rounded cursor-pointer"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Insert Below Divider Button */}
       <div className="relative h-2 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 -mb-2.5">

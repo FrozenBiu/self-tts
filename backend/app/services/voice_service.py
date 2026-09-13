@@ -4,6 +4,7 @@ import uuid
 import shutil
 import hashlib
 import random as _random
+import asyncio
 from pathlib import Path
 from fastapi import HTTPException, UploadFile, BackgroundTasks
 
@@ -170,7 +171,8 @@ async def generate_random_preview(background_tasks: BackgroundTasks) -> dict:
     output_path = OUTPUTS_DIR / filename
 
     try:
-        generate_audio(
+        await asyncio.to_thread(
+            generate_audio,
             text=preview_text,
             output_path=output_path,
             mode="design",

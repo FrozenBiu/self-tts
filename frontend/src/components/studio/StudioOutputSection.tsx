@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import {
   Layers,
   Plus,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { ScriptBlockItem } from "../project/ScriptBlockItem";
 import type { ScriptBlock, Voice } from "../../store/useTTSStore";
+import { globalAudio } from "../../utils/audioCoordinator";
 
 interface StudioOutputSectionProps {
   audioUrl: string | null;
@@ -58,6 +59,8 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
   onAddBlock,
   onRenderBlock,
 }) => {
+  const masterAudioRef = useRef<HTMLAudioElement | null>(null);
+
   if (!audioUrl && studioBlocks.length === 0) {
     return null;
   }
@@ -108,11 +111,19 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
           </div>
           <div className="flex items-center gap-4">
             <audio
+              ref={masterAudioRef}
               src={audioUrl}
               controls
               className="w-full h-10 outline-none"
-              autoPlay
               style={{ colorScheme: "dark" }}
+              onPlay={() => {
+                if (masterAudioRef.current) {
+                  globalAudio.play(masterAudioRef.current);
+                }
+              }}
+              onError={() => {
+                console.warn("File âm thanh chính không khả dụng hoặc đã hết hạn.");
+              }}
             ></audio>
           </div>
         </div>
@@ -185,36 +196,43 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
             </div>
           </div>
 
-          {/* Danh sách các câu gọn gàng */}
+          {/* Danh sách các câu cuộn gọn gàng (vùng hiển thị tối đa ~10 câu) */}
           {!isSegmentsCollapsed && (
             <div className="flex flex-col gap-2">
-              {studioBlocks.map((block, idx) => (
-                <ScriptBlockItem
-                  key={block.id}
-                  block={block}
-                  index={idx}
-                  total={studioBlocks.length}
-                  voices={voices}
-                  isPlaying={playingStudioBlockId === block.id}
-                  onPlay={() => onPlayBlock(block)}
-                  onStop={onStopPlayback}
-                  onUpdate={(updated) => onUpdateBlock(block.id, updated)}
-                  onDelete={() => onDeleteBlock(block.id)}
-                  onMoveUp={() => onMoveBlock(idx, -1)}
-                  onMoveDown={() => onMoveBlock(idx, 1)}
-                  onInsertBelow={() => onInsertBlockBelow(idx)}
-                  onRender={() => onRenderBlock(block.id)}
-                />
-              ))}
+              <div className="max-h-[760px] overflow-y-auto pr-1 flex flex-col gap-2">
+                {studioBlocks.map((block, idx) => (
+                  <ScriptBlockItem
+                    key={block.id}
+                    block={block}
+                    index={idx}
+                    total={studioBlocks.length}
+                    voices={voices}
+                    isPlaying={playingStudioBlockId === block.id}
+                    onPlay={() => {
+                      if (masterAudioRef.current && !masterAudioRef.current.paused) {
+                        masterAudioRef.current.pause();
+                      }
+                      onPlayBlock(block);
+                    }}
+                    onStop={onStopPlayback}
+                    onUpdate={(updated) => onUpdateBlock(block.id, updated)}
+                    onDelete={() => onDeleteBlock(block.id)}
+                    onMoveUp={() => onMoveBlock(idx, -1)}
+                    onMoveDown={() => onMoveBlock(idx, 1)}
+                    onInsertBelow={() => onInsertBlockBelow(idx)}
+                    onRender={() => onRenderBlock(block.id)}
+                  />
+                ))}
 
-              <button
-                type="button"
-                onClick={onAddBlock}
-                className="py-2 px-3 rounded-lg border border-dashed border-white/10 hover:border-primary/40 bg-white/5 hover:bg-primary/5 text-on-surface-variant hover:text-primary transition-all flex items-center justify-center gap-1.5 text-xs font-label-caps group shadow-inner mt-1"
-              >
-                <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-                Thêm câu mới (+1)
-              </button>
+                <button
+                  type="button"
+                  onClick={onAddBlock}
+                  className="py-2.5 px-3 rounded-lg border border-dashed border-white/10 hover:border-primary/40 bg-white/5 hover:bg-primary/5 text-on-surface-variant hover:text-primary transition-all flex items-center justify-center gap-1.5 text-xs font-label-caps group shadow-inner mt-1"
+                >
+                  <Plus className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                  Thêm câu mới (+1)
+                </button>
+              </div>
             </div>
           )}
         </div>

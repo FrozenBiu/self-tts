@@ -2,6 +2,7 @@ import os
 import uuid
 import hashlib
 import time
+import asyncio
 from pathlib import Path
 from fastapi import HTTPException, BackgroundTasks
 from pydub import AudioSegment
@@ -143,7 +144,8 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
                                     if request.voice_id.startswith("custom_")
                                     else PRESETS_DIR / f"{v['id']}.pt"
                                 )
-                                voice_clone_prompt = create_voice_prompt(
+                                voice_clone_prompt = await asyncio.to_thread(
+                                    create_voice_prompt,
                                     ref_audio=ref_audio,
                                     ref_text=ref_text,
                                 )
@@ -154,7 +156,8 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
                         break
 
     try:
-        generate_audio(
+        await asyncio.to_thread(
+            generate_audio,
             text=request.text,
             output_path=output_path,
             mode=request.mode,
@@ -256,36 +259,17 @@ async def cleanup_orphan_files(request: CleanupOrphansRequest) -> CleanupOrphans
     )
 
 
-async def stitch_audio_blocks(request: StitchRequest, background_tasks: BackgroundTasks) -> StitchResponse:
-    if not request.blocks:
-        raise HTTPException(status_code=400, detail="Danh sách phân đoạn rỗng")
-
-    for idx, block in enumerate(request.blocks):
-        safe_name = os.path.basename(block.filename)
-        file_p = OUTPUTS_DIR / safe_name
-        if not file_p.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Không tìm thấy file audio ở phân đoạn {idx + 1}: {safe_name}",
-            )
-
+def _sync_stitch_audio(blocks, audio_format: str) -> tuple[str, str | None, str | None, float]:
+    """Hàm đồng bộ xử lý ghép nối audio và xuất file SRT trên worker thread."""
     combined = AudioSegment.empty()
     srt_entries: list[str] = []
     current_time_sec = 0.0
 
-    for idx, block in enumerate(request.blocks):
+    for idx, block in enumerate(blocks):
         safe_name = os.path.basename(block.filename)
         file_p = OUTPUTS_DIR / safe_name
 
-        try:
-            segment_audio = AudioSegment.from_file(str(file_p))
-        except Exception as e:
-            logger.error(f"Lỗi đọc file audio phân đoạn {safe_name}: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Không thể giải mã file {safe_name}: {str(e)}",
-            )
-
+        segment_audio = AudioSegment.from_file(str(file_p))
         duration_sec = len(segment_audio) / 1000.0
         start_sec = current_time_sec
         end_sec = current_time_sec + duration_sec
@@ -305,24 +289,20 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
             current_time_sec += block.pause_after
 
     file_id = uuid.uuid4().hex[:10]
-    out_ext = ".mp3" if request.format.lower() == "mp3" else ".wav"
-    export_format = "mp3" if request.format.lower() == "mp3" else "wav"
+    out_ext = ".mp3" if audio_format.lower() == "mp3" else ".wav"
+    export_format = "mp3" if audio_format.lower() == "mp3" else "wav"
     out_filename = f"master_{file_id}{out_ext}"
     out_path = OUTPUTS_DIR / out_filename
 
-    try:
-        combined = pydub_normalize(combined, headroom=1.0)
-        combined = combined.set_frame_rate(44100)
+    combined = pydub_normalize(combined, headroom=1.0)
+    combined = combined.set_frame_rate(44100)
 
-        combined.export(
-            str(out_path),
-            format=export_format,
-            bitrate="320k" if export_format == "mp3" else None,
-        )
-        logger.info(f"🎉 Ghép nối master audio thành công (Studio 44.1kHz 320k): {out_filename} (Thời lượng: {combined.duration_seconds:.2f}s)")
-    except Exception as e:
-        logger.error(f"Lỗi xuất file master audio: {e}")
-        raise HTTPException(status_code=500, detail=f"Lỗi xuất audio: {str(e)}")
+    combined.export(
+        str(out_path),
+        format=export_format,
+        bitrate="320k" if export_format == "mp3" else None,
+    )
+    logger.info(f"🎉 Ghép nối master audio thành công (Studio 44.1kHz 320k): {out_filename} (Thời lượng: {combined.duration_seconds:.2f}s)")
 
     srt_filename = None
     srt_url = None
@@ -334,6 +314,32 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
         srt_url = f"http://localhost:8000/outputs/{srt_filename}"
         logger.info(f"📝 Đã tạo file phụ đề SRT đồng bộ: {srt_filename}")
 
+    return out_filename, srt_filename, srt_url, round(combined.duration_seconds, 2)
+
+
+async def stitch_audio_blocks(request: StitchRequest, background_tasks: BackgroundTasks) -> StitchResponse:
+    if not request.blocks:
+        raise HTTPException(status_code=400, detail="Danh sách phân đoạn rỗng")
+
+    for idx, block in enumerate(request.blocks):
+        safe_name = os.path.basename(block.filename)
+        file_p = OUTPUTS_DIR / safe_name
+        if not file_p.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Không tìm thấy file audio ở phân đoạn {idx + 1}: {safe_name}",
+            )
+
+    try:
+        out_filename, srt_filename, srt_url, total_dur = await asyncio.to_thread(
+            _sync_stitch_audio,
+            request.blocks,
+            request.format,
+        )
+    except Exception as e:
+        logger.error(f"Lỗi xuất file master audio: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi xuất audio: {str(e)}")
+
     background_tasks.add_task(cleanup_old_files)
 
     return StitchResponse(
@@ -342,5 +348,5 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
         audio_url=f"http://localhost:8000/outputs/{out_filename}",
         srt_filename=srt_filename,
         srt_url=srt_url,
-        total_duration=round(combined.duration_seconds, 2),
+        total_duration=total_dur,
     )

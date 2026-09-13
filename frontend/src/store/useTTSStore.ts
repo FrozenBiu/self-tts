@@ -260,7 +260,22 @@ export const useTTSStore = create<TTSState>((set, get) => {
         );
         return { pauseSettings: DEFAULT_PAUSE_SETTINGS };
       }),
-    text: "",
+    text: (() => {
+      try {
+        const savedText = localStorage.getItem("tts_input_text");
+        if (savedText !== null && savedText.trim()) return savedText;
+        const savedBlocks = JSON.parse(
+          localStorage.getItem("tts_studio_blocks") || "[]",
+        );
+        if (Array.isArray(savedBlocks) && savedBlocks.length > 0) {
+          return savedBlocks
+            .map((b: any) => b.text)
+            .filter(Boolean)
+            .join("\n");
+        }
+      } catch {}
+      return "";
+    })(),
     mode: "clone",
     instruct: "",
     num_step: 32,
@@ -271,7 +286,13 @@ export const useTTSStore = create<TTSState>((set, get) => {
     speed: typeof _savedConfig.speed === "number" ? _savedConfig.speed : 1.0,
     pitch: typeof _savedConfig.pitch === "number" ? _savedConfig.pitch : 0.0,
     isLoading: false,
-    audioUrl: null,
+    audioUrl: (() => {
+      try {
+        return localStorage.getItem("tts_master_audio_url") || null;
+      } catch {
+        return null;
+      }
+    })(),
     audioFormat:
       typeof _savedConfig.audioFormat === "string"
         ? _savedConfig.audioFormat
@@ -330,7 +351,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
         return { pronunciationWords: updated };
       }),
     voices: [],
-    selectedVoiceId: null,
+    selectedVoiceId: localStorage.getItem("tts_selected_voice") || null,
     pinnedVoices: JSON.parse(localStorage.getItem("tts_pinned_voices") || "[]"),
     projects: JSON.parse(localStorage.getItem("tts_projects") || "[]"),
     pendingVoiceForVideo: null,
@@ -415,7 +436,12 @@ export const useTTSStore = create<TTSState>((set, get) => {
     setMode: (mode) => set({ mode }),
     setInstruct: (instruct) => set({ instruct }),
     setNumStep: (num_step) => set({ num_step, inference_timesteps: num_step }),
-    setText: (text) => set({ text }),
+    setText: (text) => {
+      try {
+        localStorage.setItem("tts_input_text", text);
+      } catch {}
+      set({ text });
+    },
     setCfgValue: (cfg_value) => set({ cfg_value }),
     setTimesteps: (inference_timesteps) =>
       set({ inference_timesteps, num_step: inference_timesteps }),
@@ -423,7 +449,16 @@ export const useTTSStore = create<TTSState>((set, get) => {
     setSpeed: (speed) => set({ speed }),
     setPitch: (pitch) => set({ pitch }),
     setIsLoading: (isLoading) => set({ isLoading }),
-    setAudioUrl: (audioUrl) => set({ audioUrl }),
+    setAudioUrl: (audioUrl) => {
+      try {
+        if (audioUrl) {
+          localStorage.setItem("tts_master_audio_url", audioUrl);
+        } else {
+          localStorage.removeItem("tts_master_audio_url");
+        }
+      } catch {}
+      set({ audioUrl });
+    },
     setAudioFormat: (audioFormat) => set({ audioFormat }),
     setEnhanceAudio: (enhanceAudio) => {
       try {
@@ -474,10 +509,25 @@ export const useTTSStore = create<TTSState>((set, get) => {
       try {
         const res = await fetch("http://localhost:8000/api/voices");
         if (res.ok) {
-          const data = await res.json();
+          const data: Voice[] = await res.json();
+          const pinned: string[] = get().pinnedVoices || [];
+          const sorted = [...data].sort((a, b) => {
+            const aPinned = pinned.includes(a.id);
+            const bPinned = pinned.includes(b.id);
+            if (aPinned && !bPinned) return -1;
+            if (!aPinned && bPinned) return 1;
+            return 0;
+          });
           set({ voices: data });
-          if (data.length > 0 && !get().selectedVoiceId) {
-            set({ selectedVoiceId: data[0].id });
+
+          const savedVoiceId = localStorage.getItem("tts_selected_voice");
+          const isValidSaved =
+            savedVoiceId && data.some((v) => v.id === savedVoiceId);
+
+          if (isValidSaved) {
+            set({ selectedVoiceId: savedVoiceId });
+          } else if (sorted.length > 0) {
+            set({ selectedVoiceId: sorted[0].id });
           }
         }
       } catch (e) {
@@ -506,7 +556,14 @@ export const useTTSStore = create<TTSState>((set, get) => {
         throw e;
       }
     },
-    setSelectedVoiceId: (id) => set({ selectedVoiceId: id }),
+    setSelectedVoiceId: (id) => {
+      if (id) {
+        localStorage.setItem("tts_selected_voice", id);
+      } else {
+        localStorage.removeItem("tts_selected_voice");
+      }
+      set({ selectedVoiceId: id });
+    },
     updateProjectBlocks: (projectId, blocks) => {
       set((state) => {
         const newProjects = state.projects.map((p) =>

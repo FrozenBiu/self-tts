@@ -142,7 +142,8 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
             onChange={(e) => setCfgValue(parseFloat(e.target.value))}
           />
           <p className="text-[11px] 2k:text-xs text-on-surface-variant/70 leading-relaxed">
-            Độ bám sát văn bản. Mặc định 2.0. Sử dụng 2.5 cho code-switching (tiếng Anh xen tiếng Việt).
+            Độ bám sát văn bản. Mặc định 2.0. Sử dụng 2.5 cho code-switching
+            (tiếng Anh xen tiếng Việt).
           </p>
         </div>
 
@@ -199,7 +200,8 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
             onChange={(e) => setPitch(parseFloat(e.target.value))}
           />
           <p className="text-[11px] 2k:text-xs text-on-surface-variant/70 leading-relaxed">
-            Điều chỉnh tông giọng (bước âm - nửa cung). Tăng để giọng cao hơn, giảm để trầm hơn.
+            Điều chỉnh tông giọng (bước âm - nửa cung). Tăng để giọng cao hơn,
+            giảm để trầm hơn.
           </p>
         </div>
 
@@ -236,7 +238,8 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
             </button>
           </div>
           <p className="text-[11px] text-on-surface-variant/70 leading-relaxed">
-            Cắt ù (Low-cut 75Hz), tăng độ sáng & âm xát (Air 9kHz), nén động học phát thanh và chuẩn hóa âm lượng.
+            Cắt ù (Low-cut 75Hz), tăng độ sáng & âm xát (Air 9kHz), nén động học
+            phát thanh và chuẩn hóa âm lượng.
           </p>
         </div>
       </div>
@@ -256,7 +259,7 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
             <span className="material-symbols-outlined 2k:text-2xl">
               play_arrow
             </span>
-            BẮT ĐẦU TỔNG HỢP
+            TẠO GIỌNG NÓI
           </span>
           <div
             className={`relative z-10 flex items-center gap-2 text-sm 2k:text-base ${isLoading ? "" : "hidden"}`}

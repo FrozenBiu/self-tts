@@ -14,6 +14,8 @@ import os
 import gc
 import re
 import logging
+import threading
+import functools
 from pathlib import Path
 # pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
@@ -34,8 +36,20 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# ─── Global model holder ────────────────────────────────────────────────────
+# ─── Global model holder & thread lock ──────────────────────────────────────
 _model: OmniVoice | None = None
+_model_lock = threading.Lock()
+
+
+def synchronized(lock: threading.Lock):
+    """Decorator bảo đảm an toàn luồng (thread-safe) cho các tác vụ GPU/Inference."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            with lock:
+                return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 # Chuẩn sample rate của OmniVoice là 24,000 Hz
 SAMPLE_RATE = 24_000
@@ -134,14 +148,15 @@ def create_voice_prompt(ref_audio: str, ref_text: str | None = None) -> VoiceClo
     Trích xuất đặc trưng âm thanh và tạo VoiceClonePrompt.
     Nếu ref_text là None hoặc rỗng, OmniVoice sẽ tự động dùng Whisper ASR để bóc băng.
     """
-    model = get_model()
-    logger.info(f"Đang tạo VoiceClonePrompt từ ref_audio='{ref_audio}', ref_text={ref_text}")
-    prompt = model.create_voice_clone_prompt(
-        ref_audio=ref_audio,
-        ref_text=ref_text if (ref_text and ref_text.strip()) else None,
-        preprocess_prompt=True,
-    )
-    return prompt
+    with _model_lock:
+        model = get_model()
+        logger.info(f"Đang tạo VoiceClonePrompt từ ref_audio='{ref_audio}', ref_text={ref_text}")
+        prompt = model.create_voice_clone_prompt(
+            ref_audio=ref_audio,
+            ref_text=ref_text if (ref_text and ref_text.strip()) else None,
+            preprocess_prompt=True,
+        )
+        return prompt
 
 
 def clean_vietnamese_text(text: str) -> str:
@@ -362,6 +377,7 @@ def save_audio_file(
     )
 
 
+@synchronized(_model_lock)
 def generate_audio(
     text: str,
     output_path: Path,
