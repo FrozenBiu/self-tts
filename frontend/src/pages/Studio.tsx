@@ -68,6 +68,19 @@ export default function Studio() {
   useEffect(() => {
     fetchVoices();
     blocks.initAudio();
+
+    // Tự động dọn dẹp ghost draft nếu Thư viện đã bị xóa trống và không có audio nào đang mở
+    const hist = useTTSStore.getState().history;
+    const currentAudioUrl = useTTSStore.getState().audioUrl;
+    if (hist.length === 0 && !currentAudioUrl) {
+      setText("");
+      blocks.saveStudioBlocks([], false);
+      localStorage.removeItem("tts_input_text");
+      localStorage.removeItem("tts_master_audio_url");
+      localStorage.removeItem("tts_studio_blocks");
+      localStorage.removeItem("tts_draft_last_saved");
+    }
+
     return blocks.cleanup;
   }, [fetchVoices]);
 

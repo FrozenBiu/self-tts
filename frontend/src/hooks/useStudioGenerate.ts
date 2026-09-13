@@ -117,6 +117,12 @@ export function useStudioGenerate() {
       setElapsedTime((prev) => prev + 1);
     }, 1000);
 
+    const currentSessionId =
+      "aud_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 7);
+    try {
+      localStorage.setItem("tts_studio_session_id", currentSessionId);
+    } catch {}
+
     try {
       const processedText = applyPronunciationDictionary(text, pronunciationWords);
       const sentences = splitIntoSentencesWithPause(processedText);
@@ -139,6 +145,7 @@ export function useStudioGenerate() {
             format: useTTSStore.getState().audioFormat,
             enhance_audio: enhanceAudio,
             engine: "omnivoice",
+            session_id: currentSessionId,
           }),
         });
 
@@ -171,9 +178,13 @@ export function useStudioGenerate() {
         };
         saveStudioBlocks([singleBlock]);
 
+        const singleBlockFn =
+          data.filename || (data.audio_url ? data.audio_url.split("/").pop() : null);
+
         addHistory({
           text,
           url: data.audio_url,
+          blockFilenames: singleBlockFn ? [singleBlockFn] : [],
           projectId: selectedProjectId || undefined,
           voiceId: mode === "clone" ? selectedVoiceId : null,
           voiceName:
@@ -189,6 +200,7 @@ export function useStudioGenerate() {
           speed,
           pitch,
           engine: "omnivoice",
+          sessionId: currentSessionId,
         });
 
         toast.success("Thành công! Đã tạo âm thanh mới.", { id: toastId });
@@ -236,6 +248,7 @@ export function useStudioGenerate() {
                 format: useTTSStore.getState().audioFormat || "mp3",
                 enhance_audio: enhanceAudio,
                 engine: "omnivoice",
+                session_id: currentSessionId,
               }),
             });
 
@@ -283,6 +296,7 @@ export function useStudioGenerate() {
               })),
               format: useTTSStore.getState().audioFormat || "mp3",
               project_name: "Studio_Master",
+              session_id: currentSessionId,
               crossfade_ms: pauseSettings.crossfade ?? 15,
               loudness_standard: useTTSStore.getState().loudnessStandard || "ebu_r128",
             }),
@@ -304,9 +318,14 @@ export function useStudioGenerate() {
               saveStudioBlocks(completedBlocks);
             }
 
+            const blockFilenames = readyBlocks
+              .map((b) => b.filename || (b.audioUrl ? b.audioUrl.split("/").pop() : null))
+              .filter(Boolean) as string[];
+
             addHistory({
               text,
               url: stitchData.audio_url,
+              blockFilenames,
               projectId: selectedProjectId || undefined,
               voiceId: mode === "clone" ? selectedVoiceId : null,
               voiceName:
@@ -320,6 +339,7 @@ export function useStudioGenerate() {
               speed,
               pitch,
               engine: "omnivoice",
+              sessionId: currentSessionId,
             });
 
             toast.success(

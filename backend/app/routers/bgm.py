@@ -7,8 +7,11 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydub import AudioSegment
 
 from app.core.config import OUTPUTS_DIR, PRESETS_DIR, logger
+from app.core.storage_r2 import upload_audio_to_r2
 from app.schemas.bgm import BGMTrack, BGMListResponse, BGMMixRequest, BGMMixResponse, BGMUpdateRequest
+from app.services.tts_service import slugify_vietnamese
 from audio_processor import mix_voice_with_bgm_ducking
+
 
 router = APIRouter(prefix="/api/bgm", tags=["Background Music"])
 
@@ -222,8 +225,13 @@ async def mix_bgm(request: BGMMixRequest):
     ducking_db = depth_map.get(request.ducking_depth.lower(), -14.0)
 
     # 4. Xuất file mixed
-    out_id = uuid.uuid4().hex[:10]
-    out_name = f"master_bgm_{out_id}.mp3"
+    voice_stem = Path(request.voice_filename).stem
+    if "_bgm_" in voice_stem:
+        voice_stem = voice_stem.split("_bgm_")[0]
+
+    bgm_slug = slugify_vietnamese(request.bgm_id, max_chars=16) or "bgm"
+    short_id = uuid.uuid4().hex[:6]
+    out_name = f"{voice_stem}_bgm_{bgm_slug}_{short_id}.mp3"
     out_path = OUTPUTS_DIR / out_name
 
     success = mix_voice_with_bgm_ducking(
@@ -248,9 +256,12 @@ async def mix_bgm(request: BGMMixRequest):
     except Exception:
         pass
 
+    r2_url = upload_audio_to_r2(out_path)
+
     return BGMMixResponse(
         message="Đã lồng nhạc nền và kích hoạt Auto-Ducking thành công!",
         filename=out_name,
-        audio_url=f"http://localhost:8000/outputs/{out_name}",
+        audio_url=r2_url or f"http://localhost:8000/outputs/{out_name}",
         duration=dur,
     )
+
