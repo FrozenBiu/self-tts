@@ -14,26 +14,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import OUTPUTS_DIR, PRESETS_DIR, logger
+from app.core.database import connect_db, close_db
 from app.routers import api_router
 from model_handler import load_model
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load mô hình OmniVoice trước khi nhận request đầu tiên."""
+    """Load mô hình OmniVoice và kết nối cơ sở dữ liệu nếu có cấu hình."""
     logger.info("🚀 Server đang khởi động — nạp mô hình OmniVoice (24kHz) …")
     load_model()
+    await connect_db()
     yield
+    await close_db()
     logger.info("🛑 Server đang tắt.")
+
 
 
 app = FastAPI(
     title="OmniVoice TTS API",
     description=(
         "Text-to-Speech đa ngôn ngữ chất lượng cao 24kHz sử dụng OmniVoice (k2-fsa). "
-        "Hỗ trợ Voice Cloning (kèm cache .pt), Voice Design bằng câu lệnh, và các thẻ biểu cảm phi ngôn ngữ."
+        "Hỗ trợ Cloud Sync MongoDB & Cloudflare R2 với Fallback LocalStorage."
     ),
-    version="2.1.0",
+    version="2.2.0",
+
     lifespan=lifespan,
 )
 

@@ -79,6 +79,10 @@ class TTSRequest(BaseModel):
         default="omnivoice",
         description="Engine tổng hợp: 'omnivoice'.",
     )
+    session_id: str | None = Field(
+        default=None,
+        description="(Tùy chọn) ID phiên âm thanh để lưu trọn gói trong thư mục outputs/audios/{session_id}",
+    )
 
 
 class TTSResponse(BaseModel):
@@ -86,12 +90,17 @@ class TTSResponse(BaseModel):
     filename: str
     audio_url: str
     duration: float | None = None
+    session_id: str | None = None
 
 
 class CleanupOrphansRequest(BaseModel):
     active_filenames: list[str] = Field(
         default_factory=list,
         description="Danh sách các filename đang được sử dụng trong projects và history",
+    )
+    active_session_ids: list[str] = Field(
+        default_factory=list,
+        description="Danh sách các session_id âm thanh đang được lưu trong projects và history",
     )
     max_age_minutes: int = Field(
         default=15,
@@ -110,6 +119,14 @@ class CleanupOrphansResponse(BaseModel):
     freed_mb: float
 
 
+class DeleteBatchAudioRequest(BaseModel):
+    filenames: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Danh sách tên các file âm thanh cần xóa triệt để",
+    )
+
+
 class StitchBlockItem(BaseModel):
     filename: str = Field(..., description="Tên file âm thanh trong outputs/ (vd: tts_abc.mp3)")
     pause_after: float = Field(default=0.5, ge=0.0, le=10.0, description="Khoảng lặng sau đoạn tính bằng giây")
@@ -120,6 +137,10 @@ class StitchRequest(BaseModel):
     blocks: list[StitchBlockItem] = Field(..., min_length=1, description="Danh sách các phân đoạn cần ghép nối")
     format: str = Field(default="mp3", description="Định dạng âm thanh đầu ra: 'mp3' hoặc 'wav'")
     project_name: str | None = Field(default=None, description="Tên dự án (tùy chọn)")
+    session_id: str | None = Field(
+        default=None,
+        description="(Tùy chọn) ID phiên âm thanh để lưu file master và srt trong thư mục outputs/audios/{session_id}",
+    )
     crossfade_ms: int = Field(
         default=15,
         ge=0,

@@ -5,12 +5,15 @@ from app.schemas.tts import (
     TTSResponse,
     CleanupOrphansRequest,
     CleanupOrphansResponse,
+    DeleteBatchAudioRequest,
     StitchRequest,
     StitchResponse,
 )
 from app.services.tts_service import (
     synthesize_speech,
     delete_single_audio,
+    delete_audio_session,
+    delete_multiple_audios,
     cleanup_orphan_files,
     stitch_audio_blocks,
 )
@@ -31,11 +34,27 @@ async def text_to_speech(
 
 
 @router.delete(
+    "/api/tts/session/{session_id}",
+    summary="Xóa trọn gói thư mục session âm thanh (outputs/audios/{session_id}) và trên Cloudflare R2",
+)
+async def delete_session(session_id: str):
+    return await delete_audio_session(session_id)
+
+
+@router.delete(
     "/api/tts/{filename}",
-    summary="Xóa một file âm thanh đã tổng hợp",
+    summary="Xóa một file âm thanh đã tổng hợp (hoặc session_id nếu là thư mục)",
 )
 async def delete_audio(filename: str):
     return await delete_single_audio(filename)
+
+
+@router.post(
+    "/api/tts/delete-batch",
+    summary="Xóa nhiều file âm thanh kèm phụ đề và R2",
+)
+async def delete_batch_audios(request: DeleteBatchAudioRequest):
+    return await delete_multiple_audios(request.filenames)
 
 
 @router.post(

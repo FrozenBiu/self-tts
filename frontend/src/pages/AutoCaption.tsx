@@ -87,6 +87,8 @@ const SYSTEM_FONTS = [
   { name: "Arial", label: "Arial Bold (Cơ bản)" },
 ];
 
+const DRAFT_STORAGE_KEY = "autocaption_latest_draft";
+
 export default function AutoCaption() {
   // Video & Transcription State
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -215,17 +217,99 @@ export default function AutoCaption() {
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  // Dọn dẹp session khi người dùng rời trang
+  // Tự động lưu bản nháp của phiên làm việc gần nhất vào localStorage
   useEffect(() => {
-    return () => {
-      if (sessionId) {
-        fetch(`http://localhost:8000/api/caption/session/${sessionId}`, {
-          method: "DELETE",
-          keepalive: true,
-        }).catch(() => {});
+    if (!sessionId || !videoUrl || segments.length === 0) return;
+
+    const timer = setTimeout(() => {
+      try {
+        const draft = {
+          sessionId,
+          filename: videoFile?.name || "video.mp4",
+          videoUrl,
+          videoDuration,
+          segments,
+          rawSegments,
+          style,
+          referenceScript,
+          savedAt: Date.now(),
+        };
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+      } catch (err) {
+        console.warn("Không thể lưu draft Auto Caption:", err);
       }
-    };
-  }, [sessionId]);
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [
+    sessionId,
+    videoUrl,
+    videoDuration,
+    segments,
+    rawSegments,
+    style,
+    referenceScript,
+    videoFile,
+  ]);
+
+  // Tự động khôi phục phiên làm việc gần nhất khi vào trang hoặc F5
+  useEffect(() => {
+    const rawDraft = localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (!rawDraft) return;
+
+    try {
+      const draft = JSON.parse(rawDraft);
+      if (!draft.sessionId) return;
+
+      // Kiểm tra session còn tồn tại trên server không
+      fetch(`http://localhost:8000/api/caption/session/${draft.sessionId}/check`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.exists) {
+            setSessionId(draft.sessionId);
+            setVideoUrl(data.video_url || draft.videoUrl);
+            if (draft.videoDuration) setVideoDuration(draft.videoDuration);
+            setSegments(draft.segments || []);
+            setRawSegments(draft.rawSegments || draft.segments || []);
+            if (draft.style) setStyle(draft.style);
+            if (draft.referenceScript) setReferenceScript(draft.referenceScript);
+
+            toast.info(
+              `✨ Đã khôi phục phiên làm việc gần nhất: "${draft.filename || "Video"}" (${draft.segments?.length || 0} câu phụ đề).`,
+              { duration: 5000 },
+            );
+          } else {
+            // Server đã dọn dẹp hoặc session không còn
+            localStorage.removeItem(DRAFT_STORAGE_KEY);
+          }
+        })
+        .catch(() => {});
+    } catch {
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+    }
+  }, []);
+
+  // Bắt đầu làm video mới & dọn dẹp sạch phiên cũ
+  const handleStartNewSession = async () => {
+    const currentId = sessionId;
+    setVideoFile(null);
+    setVideoUrl(null);
+    setVideoDuration(0);
+    setSessionId(null);
+    setSegments([]);
+    setRawSegments([]);
+    setUndoStack([]);
+    setReferenceScript("");
+    setSelectedSegId(null);
+    localStorage.removeItem(DRAFT_STORAGE_KEY);
+
+    if (currentId) {
+      fetch(`http://localhost:8000/api/caption/session/${currentId}`, {
+        method: "DELETE",
+      }).catch(() => {});
+    }
+    toast.success("✨ Đã dọn dẹp phiên cũ, sẵn sàng cho video mới!");
+  };
 
   // Chọn video
   const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -290,6 +374,9 @@ export default function AutoCaption() {
 
       const data = await response.json();
       setSessionId(data.session_id);
+      if (data.video_url) {
+        setVideoUrl(data.video_url);
+      }
       setSegments(data.segments || []);
       setRawSegments(data.segments || []);
 
@@ -882,6 +969,19 @@ export default function AutoCaption() {
             <Upload className="w-3.5 h-3.5 text-primary" />
             {videoFile ? "Đổi video (.mp4)" : "Chọn Video (.mp4)"}
           </button>
+
+          {/* Nút Làm Video Mới / Dọn Dẹp Phiên Cũ */}
+          {(sessionId || videoUrl || segments.length > 0) && (
+            <button
+              onClick={handleStartNewSession}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-red-500/30 hover:border-red-500/60 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-semibold transition-all cursor-pointer shadow-xs"
+              title="Dọn dẹp phiên video này và bắt đầu làm video mới"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-red-400" />
+              <span className="hidden sm:inline">Làm video mới</span>
+              <span className="sm:hidden">Làm mới</span>
+            </button>
+          )}
 
           {/* Nút Nhập Kịch Bản Mẫu */}
           <button

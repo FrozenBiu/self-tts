@@ -13,6 +13,9 @@ OUTPUTS_DIR.mkdir(exist_ok=True)
 CAPTIONS_DIR = OUTPUTS_DIR / "captions"
 CAPTIONS_DIR.mkdir(exist_ok=True)
 
+AUDIOS_DIR = OUTPUTS_DIR / "audios"
+AUDIOS_DIR.mkdir(exist_ok=True)
+
 PRESETS_DIR = BASE_DIR / "presets"
 PRESETS_DIR.mkdir(exist_ok=True)
 
@@ -25,6 +28,16 @@ if not CUSTOM_VOICES_JSON.exists():
         f.write("[]")
 
 DEFAULT_NUM_STEP = int(os.getenv("DEFAULT_NUM_STEP", "32"))
+
+# Cấu hình Đồng bộ Đa thiết bị (Cloud Storage & Database)
+MONGODB_URI = os.getenv("MONGODB_URI", "").strip()
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "omnivoice").strip()
+
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID", "").strip()
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "").strip()
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "").strip()
+R2_PUBLIC_URL = os.getenv("R2_PUBLIC_URL", "").strip().rstrip("/")
 
 # Logging cấu hình chung
 logging.basicConfig(

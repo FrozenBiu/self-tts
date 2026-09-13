@@ -17,6 +17,8 @@ export interface AudioRecord {
   speed?: number;
   pitch?: number;
   engine?: string;
+  blockFilenames?: string[];
+  sessionId?: string;
 }
 
 export interface ScriptBlock {
@@ -114,7 +116,15 @@ export const DEFAULT_PRONUNCIATION_WORDS: PronunciationWord[] = [
   },
 ];
 
+export interface SyncStatus {
+  mode: "local" | "cloud";
+  mongo_connected: boolean;
+  r2_connected: boolean;
+  message: string;
+}
+
 export function applyPronunciationDictionary(
+
   text: string,
   words: PronunciationWord[],
 ): string {
@@ -234,7 +244,13 @@ interface TTSState {
   }>;
   loudnessStandard: "ebu_r128" | "youtube" | "peak";
   setLoudnessStandard: (standard: "ebu_r128" | "youtube" | "peak") => void;
+  syncStatus: SyncStatus;
+  isSyncing: boolean;
+  checkStorageStatus: () => Promise<void>;
+  syncAllToCloud: () => Promise<void>;
+  fetchFromCloud: () => Promise<void>;
 }
+
 
 export const useTTSStore = create<TTSState>((set, get) => {
   // Đọc cấu hình mô hình đã lưu từ localStorage
@@ -327,6 +343,112 @@ export const useTTSStore = create<TTSState>((set, get) => {
       set({ engine });
     },
     history: JSON.parse(localStorage.getItem("tts_history") || "[]"),
+    syncStatus: {
+      mode: (localStorage.getItem("tts_sync_mode") as "cloud" | "local") || "local",
+      mongo_connected: localStorage.getItem("tts_sync_mongo") === "true",
+      r2_connected: localStorage.getItem("tts_sync_r2") === "true",
+      message:
+        localStorage.getItem("tts_sync_mode") === "cloud"
+          ? "Đồng bộ Đám mây (MongoDB Atlas & R2)"
+          : "Chế độ Cục Bộ (Local Mode) - Dữ liệu lưu trong LocalStorage trình duyệt.",
+    },
+    isSyncing: false,
+    checkStorageStatus: async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/sync/status");
+        if (res.ok) {
+          const data: SyncStatus = await res.json();
+          set({ syncStatus: data });
+          localStorage.setItem("tts_sync_mode", data.mode);
+          localStorage.setItem("tts_sync_mongo", String(data.mongo_connected));
+          localStorage.setItem("tts_sync_r2", String(data.r2_connected));
+          if (data.mode === "cloud" && data.mongo_connected) {
+            await get().fetchFromCloud();
+          }
+        }
+      } catch {
+        const fallback: SyncStatus = {
+          mode: "local",
+          mongo_connected: false,
+          r2_connected: false,
+          message: "Chế độ Cục Bộ (Local Mode) - Không kết nối được API đám mây.",
+        };
+        set({ syncStatus: fallback });
+        localStorage.setItem("tts_sync_mode", "local");
+        localStorage.setItem("tts_sync_mongo", "false");
+        localStorage.setItem("tts_sync_r2", "false");
+      }
+    },
+    fetchFromCloud: async () => {
+      try {
+        set({ isSyncing: true });
+        const [projRes, histRes, pronRes] = await Promise.all([
+          fetch("http://localhost:8000/api/sync/projects").catch(() => null),
+          fetch("http://localhost:8000/api/sync/history").catch(() => null),
+          fetch("http://localhost:8000/api/sync/pronunciation").catch(() => null),
+        ]);
+
+        if (projRes && projRes.ok) {
+          const cloudProjects: Project[] = await projRes.json();
+          if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
+            set({ projects: cloudProjects });
+            localStorage.setItem("tts_projects", JSON.stringify(cloudProjects));
+          }
+        }
+
+        if (histRes && histRes.ok) {
+          const cloudHistory: AudioRecord[] = await histRes.json();
+          if (Array.isArray(cloudHistory) && cloudHistory.length > 0) {
+            set({ history: cloudHistory });
+            localStorage.setItem("tts_history", JSON.stringify(cloudHistory));
+          }
+        }
+
+        if (pronRes && pronRes.ok) {
+          const cloudPron: PronunciationWord[] = await pronRes.json();
+          if (Array.isArray(cloudPron) && cloudPron.length > 0) {
+            set({ pronunciationWords: cloudPron });
+            localStorage.setItem("tts_pronunciation_dict", JSON.stringify(cloudPron));
+          }
+        }
+      } catch (e) {
+        console.error("Lỗi khi đồng bộ từ Cloud:", e);
+      } finally {
+        set({ isSyncing: false });
+      }
+    },
+    syncAllToCloud: async () => {
+      const state = get();
+      if (state.syncStatus.mode !== "cloud" || !state.syncStatus.mongo_connected) {
+        return;
+      }
+      set({ isSyncing: true });
+      try {
+        for (const p of state.projects) {
+          await fetch("http://localhost:8000/api/sync/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(p),
+          }).catch(() => {});
+        }
+        for (const h of state.history) {
+          await fetch("http://localhost:8000/api/sync/history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(h),
+          }).catch(() => {});
+        }
+        for (const w of state.pronunciationWords) {
+          await fetch("http://localhost:8000/api/sync/pronunciation", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(w),
+          }).catch(() => {});
+        }
+      } finally {
+        set({ isSyncing: false });
+      }
+    },
     pronunciationWords: (() => {
       try {
         const saved = localStorage.getItem("tts_pronunciation_dict");
@@ -346,6 +468,16 @@ export const useTTSStore = create<TTSState>((set, get) => {
         };
         const updated = [newWord, ...state.pronunciationWords];
         localStorage.setItem("tts_pronunciation_dict", JSON.stringify(updated));
+
+        // Sync lên cloud nếu bật
+        if (state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          fetch("http://localhost:8000/api/sync/pronunciation", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newWord),
+          }).catch(() => {});
+        }
+
         return { pronunciationWords: updated };
       }),
     updatePronunciationWord: (id, updates) =>
@@ -354,12 +486,29 @@ export const useTTSStore = create<TTSState>((set, get) => {
           w.id === id ? { ...w, ...updates } : w,
         );
         localStorage.setItem("tts_pronunciation_dict", JSON.stringify(updated));
+
+        const target = updated.find((w) => w.id === id);
+        if (target && state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          fetch("http://localhost:8000/api/sync/pronunciation", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(target),
+          }).catch(() => {});
+        }
+
         return { pronunciationWords: updated };
       }),
     deletePronunciationWord: (id) =>
       set((state) => {
         const updated = state.pronunciationWords.filter((w) => w.id !== id);
         localStorage.setItem("tts_pronunciation_dict", JSON.stringify(updated));
+
+        if (state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          fetch(`http://localhost:8000/api/sync/pronunciation/${id}`, {
+            method: "DELETE",
+          }).catch(() => {});
+        }
+
         return { pronunciationWords: updated };
       }),
     togglePronunciationWord: (id) =>
@@ -368,8 +517,19 @@ export const useTTSStore = create<TTSState>((set, get) => {
           w.id === id ? { ...w, enabled: !w.enabled } : w,
         );
         localStorage.setItem("tts_pronunciation_dict", JSON.stringify(updated));
+
+        const target = updated.find((w) => w.id === id);
+        if (target && state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          fetch("http://localhost:8000/api/sync/pronunciation", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(target),
+          }).catch(() => {});
+        }
+
         return { pronunciationWords: updated };
       }),
+
     voices: [],
     selectedVoiceId: localStorage.getItem("tts_selected_voice") || null,
     pinnedVoices: JSON.parse(localStorage.getItem("tts_pinned_voices") || "[]"),
@@ -387,6 +547,15 @@ export const useTTSStore = create<TTSState>((set, get) => {
       set((state) => {
         const newProjects = [newProject, ...state.projects];
         localStorage.setItem("tts_projects", JSON.stringify(newProjects));
+
+        if (state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          fetch("http://localhost:8000/api/sync/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newProject),
+          }).catch(() => {});
+        }
+
         return { projects: newProjects };
       });
       return newProject;
@@ -432,9 +601,17 @@ export const useTTSStore = create<TTSState>((set, get) => {
         const newProjects = state.projects.filter((p) => p.id !== id);
         localStorage.setItem("tts_projects", JSON.stringify(newProjects));
         localStorage.setItem("tts_history", JSON.stringify(newHistory));
+
+        if (state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          fetch(`http://localhost:8000/api/sync/projects/${id}`, {
+            method: "DELETE",
+          }).catch(() => {});
+        }
+
         return { projects: newProjects, history: newHistory };
       });
     },
+
     updateRecordProject: (recordId, projectId) => {
       set((state) => {
         const newHistory = state.history.map((h) =>
@@ -503,30 +680,116 @@ export const useTTSStore = create<TTSState>((set, get) => {
         };
         const newHistory = [newRecord, ...state.history];
         localStorage.setItem("tts_history", JSON.stringify(newHistory));
+
+        if (state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          fetch("http://localhost:8000/api/sync/history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newRecord),
+          }).catch(() => {});
+        }
+
         return { history: newHistory };
       }),
     removeHistory: async (id) => {
       const record = get().history.find((h) => h.id === id);
-      if (record && record.url) {
-        const filename = record.url.split("/").pop();
-        if (filename) {
+      const filesToDelete = new Set<string>();
+
+      // 1. Nếu audio có sessionId -> Gọi API xóa trọn gói thư mục session trong 1 tích tắc
+      if (record && record.sessionId) {
+        try {
+          await fetch(`http://localhost:8000/api/tts/session/${record.sessionId}`, {
+            method: "DELETE",
+          });
+        } catch (e) {
+          console.error("Lỗi xóa audio session:", e);
+        }
+      } else {
+        // Fallback tương thích ngược: Thu thập từng file lẻ để xóa batch
+        if (record && record.url) {
+          const masterFn = record.url.split("/").pop();
+          if (masterFn) filesToDelete.add(masterFn);
+        }
+
+        if (record && Array.isArray(record.blockFilenames)) {
+          for (const bFn of record.blockFilenames) {
+            if (bFn) filesToDelete.add(bFn);
+          }
+        }
+
+        if (filesToDelete.size > 0) {
           try {
-            await fetch(`http://localhost:8000/api/tts/${filename}`, {
-              method: "DELETE",
+            await fetch("http://localhost:8000/api/tts/delete-batch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ filenames: Array.from(filesToDelete) }),
             });
           } catch (e) {
-            console.error("Lỗi xoá file", e);
+            console.error("Lỗi xóa batch audio files:", e);
           }
         }
       }
+
+      // 2. Kiểm tra xem audio vừa xóa có phải là phiên đang mở ở Phòng thu không
+      let currentStudioBlocks: ScriptBlock[] = [];
+      try {
+        currentStudioBlocks = JSON.parse(
+          localStorage.getItem("tts_studio_blocks") || "[]",
+        );
+      } catch {}
+
+      const state = get();
+      const matchesStudioMaster =
+        Boolean(record && state.audioUrl && state.audioUrl === record.url);
+      const matchesStudioText =
+        Boolean(record && state.text && state.text.trim() === record.text.trim());
+      const matchesStudioBlocks =
+        Boolean(record && currentStudioBlocks.some((b) => b.audioUrl && b.audioUrl === record.url));
+      const willLibraryBeEmpty = state.history.length <= 1;
+
+      if (get().syncStatus.mode === "cloud" && get().syncStatus.mongo_connected) {
+        fetch(`http://localhost:8000/api/sync/history/${id}`, {
+          method: "DELETE",
+        }).catch(() => {});
+      }
+
       set((state) => {
         const newHistory = state.history.filter((h) => h.id !== id);
         localStorage.setItem("tts_history", JSON.stringify(newHistory));
-        return { history: newHistory };
+
+        const libraryEmpty = newHistory.length === 0;
+        let newText = state.text;
+        let newAudioUrl = state.audioUrl;
+
+        if (matchesStudioMaster || matchesStudioText || matchesStudioBlocks || libraryEmpty) {
+          newText = "";
+          newAudioUrl = null;
+          localStorage.removeItem("tts_input_text");
+          localStorage.removeItem("tts_master_audio_url");
+          localStorage.removeItem("tts_studio_blocks");
+          localStorage.removeItem("tts_studio_session_id");
+          localStorage.removeItem("tts_master_elapsed_time");
+          localStorage.removeItem("tts_has_modified_segments");
+          localStorage.removeItem("tts_draft_last_saved");
+
+          // Bắn event toàn cục để các component/hook ở Phòng thu đồng bộ reset ngay
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("tts_studio_clear"));
+          }
+        }
+
+        return {
+          history: newHistory,
+          text: newText,
+          audioUrl: newAudioUrl,
+        };
       });
     },
     fetchVoices: async () => {
       try {
+        // Tự động kiểm tra trạng thái lưu trữ / đồng bộ
+        get().checkStorageStatus().catch(() => {});
+
         const res = await fetch("http://localhost:8000/api/voices");
         if (res.ok) {
           const data: Voice[] = await res.json();
@@ -554,6 +817,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
         console.error("Lỗi khi tải danh sách giọng mẫu:", e);
       }
     },
+
     deleteCustomVoice: async (id) => {
       try {
         const res = await fetch(
@@ -590,6 +854,16 @@ export const useTTSStore = create<TTSState>((set, get) => {
           p.id === projectId ? { ...p, blocks } : p,
         );
         localStorage.setItem("tts_projects", JSON.stringify(newProjects));
+
+        const target = newProjects.find((p) => p.id === projectId);
+        if (target && state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          fetch("http://localhost:8000/api/sync/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(target),
+          }).catch(() => {});
+        }
+
         return { projects: newProjects };
       });
     },
@@ -599,18 +873,38 @@ export const useTTSStore = create<TTSState>((set, get) => {
           p.id === projectId ? { ...p, ...master } : p,
         );
         localStorage.setItem("tts_projects", JSON.stringify(newProjects));
+
+        const target = newProjects.find((p) => p.id === projectId);
+        if (target && state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          fetch("http://localhost:8000/api/sync/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(target),
+          }).catch(() => {});
+        }
+
         return { projects: newProjects };
       });
     },
+
     cleanupJunkFiles: async (force = false) => {
       const state = get();
       const activeFiles = new Set<string>();
+      const activeSessions = new Set<string>();
 
-      // 1. Từ lịch sử Audio (history)
+      // 1. Từ lịch sử Audio (history): master audio + tất cả file phân đoạn + session_id
       for (const h of state.history) {
+        if (h.sessionId) {
+          activeSessions.add(h.sessionId);
+        }
         if (h.url) {
           const fn = h.url.split("/").pop();
           if (fn) activeFiles.add(fn);
+        }
+        if (Array.isArray(h.blockFilenames)) {
+          for (const bFn of h.blockFilenames) {
+            if (bFn) activeFiles.add(bFn);
+          }
         }
       }
 
@@ -636,6 +930,29 @@ export const useTTSStore = create<TTSState>((set, get) => {
         }
       }
 
+      // 3. Từ phiên làm việc hiện tại ở Phòng thu (Studio) - bảo vệ session_id và các file phân đoạn
+      const currentStudioSession = localStorage.getItem("tts_studio_session_id");
+      if (currentStudioSession) {
+        activeSessions.add(currentStudioSession);
+      }
+
+      if (state.audioUrl) {
+        const fn = state.audioUrl.split("/").pop();
+        if (fn) activeFiles.add(fn);
+      }
+      try {
+        const studioBlocks: ScriptBlock[] = JSON.parse(
+          localStorage.getItem("tts_studio_blocks") || "[]",
+        );
+        for (const b of studioBlocks) {
+          if (b.filename) activeFiles.add(b.filename);
+          else if (b.audioUrl) {
+            const fn = b.audioUrl.split("/").pop();
+            if (fn) activeFiles.add(fn);
+          }
+        }
+      } catch {}
+
       try {
         const res = await fetch(
           "http://localhost:8000/api/tts/cleanup-orphans",
@@ -644,6 +961,7 @@ export const useTTSStore = create<TTSState>((set, get) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               active_filenames: Array.from(activeFiles),
+              active_session_ids: Array.from(activeSessions),
               max_age_minutes: force ? 0 : 15,
               force,
             }),

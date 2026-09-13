@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SyncBadge } from "@/components/sync/SyncBadge";
+import { useTTSStore } from "@/store/useTTSStore";
+
 
 const NAV_ITEMS = [
   { path: "/", label: "Phòng thu", icon: "graphic_eq" },
@@ -13,6 +16,12 @@ const NAV_ITEMS = [
 
 export function MainLayout() {
   const location = useLocation();
+  const checkStorageStatus = useTTSStore((state) => state.checkStorageStatus);
+
+  // Tự động kiểm tra trạng thái lưu trữ đám mây / local trên toàn ứng dụng khi tải trang hoặc F5
+  useEffect(() => {
+    checkStorageStatus().catch(() => {});
+  }, [checkStorageStatus]);
 
   // Lưu trạng thái thu nhỏ sidebar vào localStorage để giữ trải nghiệm người dùng
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -151,7 +160,13 @@ export function MainLayout() {
             );
           })}
         </ul>
+
+        {/* Sync & Storage Status Footer */}
+        <div className="mt-auto pt-3 border-t border-white/10 w-full">
+          <SyncBadge isCollapsed={isCollapsed} />
+        </div>
       </nav>
+
 
       {/* Main Content Area (Tự động mở rộng vùng làm việc theo trạng thái sidebar) */}
       <main

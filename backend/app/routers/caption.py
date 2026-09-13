@@ -57,6 +57,34 @@ async def optimize_chunks_endpoint(request: OptimizeChunksRequest):
         raise HTTPException(status_code=500, detail=f"Không thể chia nhỏ câu: {str(exc)}") from exc
 
 
+def cleanup_caption_sessions(exclude_session_id: str | None = None) -> tuple[int, int]:
+    """
+    Dọn dẹp các thư mục session video trong outputs/captions/,
+    chỉ giữ lại session đang hoạt động gần nhất (exclude_session_id).
+    Trả về (số session đã xóa, số byte đã giải phóng).
+    """
+    deleted_count = 0
+    freed_bytes = 0
+    if not CAPTIONS_DIR.exists():
+        return 0, 0
+
+    for item in CAPTIONS_DIR.iterdir():
+        if item.is_dir() and item.name != exclude_session_id:
+            try:
+                dir_size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file())
+                shutil.rmtree(item, ignore_errors=True)
+                deleted_count += 1
+                freed_bytes += dir_size
+                logger.info(
+                    f"🗑️ [AutoCaption Auto-Cleanup] Đã dọn session cũ: {item.name} "
+                    f"({dir_size / (1024 * 1024):.2f} MB)"
+                )
+            except Exception as e:
+                logger.warning(f"Không thể xóa session cũ {item.name}: {e}")
+
+    return deleted_count, freed_bytes
+
+
 @router.post("/transcribe")
 async def transcribe_video(
     video: UploadFile = File(...),
@@ -65,6 +93,13 @@ async def transcribe_video(
     reference_script: str | None = Form(None),
 ):
     session_id = uuid.uuid4().hex[:12]
+
+    # Tự động dọn sạch tất cả các session video cũ trước đó, chỉ giữ lại session duy nhất này
+    try:
+        cleanup_caption_sessions(exclude_session_id=session_id)
+    except Exception as ce:
+        logger.warning(f"Lỗi khi dọn dẹp session cũ: {ce}")
+
     session_dir = CAPTIONS_DIR / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
 
@@ -310,6 +345,15 @@ async def export_captioned_video(request: ExportCaptionRequest):
             fonts_dir=fonts_dir_param,
         )
 
+        # Tự động dọn dẹp các file trung gian (audio.wav, video_trimmed_*.mp4) để tiết kiệm dung lượng
+        try:
+            for temp_trimmed in session_dir.glob("video_trimmed_*.mp4"):
+                temp_trimmed.unlink(missing_ok=True)
+            (session_dir / "audio.wav").unlink(missing_ok=True)
+            logger.info(f"✨ [AutoCaption] Đã dọn dẹp file trung gian sau khi xuất video: {request.session_id}")
+        except Exception as cle:
+            logger.warning(f"Không thể dọn file trung gian: {cle}")
+
         return {
             "status": "success",
             "download_url": f"http://localhost:8000/api/caption/download/{request.session_id}",
@@ -320,6 +364,43 @@ async def export_captioned_video(request: ExportCaptionRequest):
         raise HTTPException(
             status_code=500, detail=f"Render video thất bại: {str(exc)}"
         ) from exc
+
+
+@router.get("/session/{session_id}/check")
+async def check_caption_session(session_id: str):
+    """Kiểm tra xem session có tồn tại trên server để khôi phục bản nháp không."""
+    safe_id = os.path.basename(session_id)
+    session_dir = CAPTIONS_DIR / safe_id
+    if not session_dir.exists() or not session_dir.is_dir():
+        return {"exists": False}
+
+    video_files = list(session_dir.glob("video_raw.*"))
+    if not video_files:
+        return {"exists": False}
+
+    video_file = video_files[0]
+    output_final = session_dir / "output_final.mp4"
+
+    return {
+        "exists": True,
+        "session_id": safe_id,
+        "video_url": f"http://localhost:8000/outputs/captions/{safe_id}/{video_file.name}",
+        "filename": video_file.name,
+        "has_output": output_final.exists(),
+        "download_url": f"http://localhost:8000/api/caption/download/{safe_id}" if output_final.exists() else None,
+    }
+
+
+@router.post("/session/clean-all")
+async def clean_all_caption_sessions():
+    """Xóa sạch tất cả các session trong outputs/captions/ để giải phóng ổ cứng."""
+    deleted_count, freed_bytes = cleanup_caption_sessions(exclude_session_id=None)
+    freed_mb = round(freed_bytes / (1024 * 1024), 2)
+    return {
+        "message": f"Đã dọn dẹp {deleted_count} phiên làm việc, giải phóng {freed_mb} MB.",
+        "deleted_count": deleted_count,
+        "freed_mb": freed_mb,
+    }
 
 
 @router.get("/download/{session_id}")

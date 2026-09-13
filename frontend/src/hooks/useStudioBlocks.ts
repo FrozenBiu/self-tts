@@ -30,6 +30,31 @@ export function useStudioBlocks() {
   const [isUpdatingMaster, setIsUpdatingMaster] = useState(false);
   const [playingStudioBlockId, setPlayingStudioBlockId] = useState<string | null>(null);
 
+  // Lắng nghe sự kiện dọn dẹp Studio khi audio tương ứng bị xóa khỏi Thư viện
+  useEffect(() => {
+    const handleClear = () => {
+      setStudioBlocks([]);
+      setHasModifiedSegments(false);
+      setPast([]);
+      setFuture([]);
+    };
+
+    window.addEventListener("tts_studio_clear", handleClear);
+
+    // Dọn sạch nếu thư viện trống và không có audioUrl
+    const hist = useTTSStore.getState().history;
+    const audUrl = useTTSStore.getState().audioUrl;
+    if (hist.length === 0 && !audUrl) {
+      handleClear();
+      localStorage.removeItem("tts_studio_blocks");
+      localStorage.removeItem("tts_has_modified_segments");
+    }
+
+    return () => {
+      window.removeEventListener("tts_studio_clear", handleClear);
+    };
+  }, []);
+
   // ── Undo / Redo State (Full Studio Session: blocks, text, master audio) ──
   interface StudioSnapshot {
     blocks: ScriptBlock[];

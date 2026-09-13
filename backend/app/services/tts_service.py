@@ -1,8 +1,12 @@
 import os
+import re
 import uuid
+import shutil
 import hashlib
 import time
+import unicodedata
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from fastapi import HTTPException, BackgroundTasks
 from pydub import AudioSegment
@@ -11,6 +15,8 @@ from pydub.effects import normalize as pydub_normalize
 from app.core.config import (
     BASE_DIR,
     OUTPUTS_DIR,
+    CAPTIONS_DIR,
+    AUDIOS_DIR,
     PRESETS_DIR,
     CUSTOM_VOICES_DIR,
     CUSTOM_VOICES_JSON,
@@ -32,6 +38,46 @@ from model_handler import (
     VoiceClonePrompt,
 )
 from audio_processor import apply_ebur128_loudnorm
+from app.core.storage_r2 import (
+    upload_audio_to_r2,
+    delete_audio_from_r2,
+    delete_session_from_r2,
+    cleanup_orphan_r2_files,
+)
+
+
+def slugify_vietnamese(text: str, max_chars: int = 24) -> str:
+    """
+    Chuyển đổi chuỗi (tiếng Việt có dấu, ký tự đặc biệt) thành dạng slug ASCII an toàn,
+    dễ đọc cho tên file âm thanh và tương thích hoàn toàn với hệ điều hành và S3/R2.
+    """
+    if not text:
+        return ""
+    # 1. Bỏ các thẻ phi ngôn ngữ như [laughter], [chuckle], [sigh], etc.
+    s = re.sub(r"\[.*?\]", "", text)
+
+    # 2. Thay thế ký tự đ/Đ
+    s = s.replace("đ", "d").replace("Đ", "d")
+
+    # 3. Chuẩn hóa NFKD và loại bỏ dấu tiếng Việt (combining marks)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+
+    # 4. Chuyển chữ thường và thay mọi ký tự không phải chữ/số thành dấu gạch ngang '-'
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+
+    # 5. Cắt ngắn tối đa max_chars ký tự mà không làm gãy giữa từ
+    if len(s) > max_chars:
+        trimmed = s[:max_chars]
+        last_dash = trimmed.rfind("-")
+        if last_dash > max_chars // 2:
+            s = trimmed[:last_dash]
+        else:
+            s = trimmed
+        s = s.rstrip("-")
+
+    return s
 
 
 def cleanup_old_files(keep_latest: int = 200) -> None:
@@ -41,21 +87,35 @@ def cleanup_old_files(keep_latest: int = 200) -> None:
     - Xoá các file TTS cũ nếu vượt quá keep_latest.
     """
     now = time.time()
+    try:
+        orphan_previews = [
+            f
+            for f in OUTPUTS_DIR.glob("random_preview_*.*")
+            if f.is_file() and (now - f.stat().st_mtime) > 600
+        ]
+        for f in orphan_previews:
+            try:
+                f.unlink(missing_ok=True)
+            except Exception:
+                pass
 
-    # Dọn sạch các file preview ngẫu nhiên chưa lưu có tuổi thọ > 10 phút
-    for p in list(OUTPUTS_DIR.glob("random_preview_*")):
-        try:
-            if now - p.stat().st_mtime > 600:
-                p.unlink(missing_ok=True)
-                logger.info(f"🗑️ Tự động dọn dẹp file preview ngẫu nhiên hết hạn: {p.name}")
-        except Exception:
-            pass
-
-    files = list(OUTPUTS_DIR.glob("*.wav")) + list(OUTPUTS_DIR.glob("*.mp3"))
-    files = sorted(files, key=lambda f: f.stat().st_mtime)
-    for old_file in files[:-keep_latest]:
-        old_file.unlink(missing_ok=True)
-        logger.info(f"🗑️ Đã xóa file cũ: {old_file.name}")
+        audio_files = sorted(
+            [
+                f
+                for f in OUTPUTS_DIR.iterdir()
+                if f.is_file() and f.suffix.lower() in [".wav", ".mp3"]
+            ],
+            key=lambda x: x.stat().st_mtime,
+            reverse=True,
+        )
+        if len(audio_files) > keep_latest:
+            for old_file in audio_files[keep_latest:]:
+                try:
+                    old_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"Lỗi khi dọn dẹp outputs/: {e}")
 
 
 def format_srt_time(seconds: float) -> str:
@@ -81,17 +141,78 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
     file_hash = hashlib.md5(cache_str.encode("utf-8")).hexdigest()
 
     ext = ".mp3" if request.format == "mp3" else ".wav"
-    filename = f"tts_{file_hash}{ext}"
-    output_path = OUTPUTS_DIR / filename
+    text_slug = slugify_vietnamese(request.text, max_chars=24)
+    voice_slug = slugify_vietnamese(request.voice_id or "default", max_chars=20) or "voice"
+    hash_short = file_hash[:8]
+
+    if text_slug:
+        filename = f"tts_{text_slug}_{voice_slug}_{hash_short}{ext}"
+    else:
+        filename = f"tts_{file_hash[:12]}{ext}"
+
+    target_dir = OUTPUTS_DIR
+    url_prefix = "http://localhost:8000/outputs"
+    r2_key = f"outputs/{filename}"
+    session_id = None
+
+    if request.session_id and request.session_id.strip():
+        session_id = os.path.basename(request.session_id.strip())
+        target_dir = AUDIOS_DIR / session_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        url_prefix = f"http://localhost:8000/outputs/audios/{session_id}"
+        r2_key = f"outputs/audios/{session_id}/{filename}"
+
+    output_path = target_dir / filename
+    legacy_output_path = target_dir / f"tts_{file_hash}{ext}"
+    root_fallback_path = OUTPUTS_DIR / filename
 
     if output_path.exists():
         logger.info(f"⚡ CACHE HIT: Tái sử dụng {filename}")
         output_path.touch()
+        r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
         return TTSResponse(
             message="Tổng hợp thành công (Cache Hit)!",
             filename=filename,
-            audio_url=f"http://localhost:8000/outputs/{filename}",
+            audio_url=r2_url or f"{url_prefix}/{filename}",
+            session_id=session_id,
         )
+    elif root_fallback_path.exists() and session_id:
+        logger.info(f"⚡ CACHE HIT (Root Cache): Tái sử dụng {filename} từ cache chung")
+        try:
+            shutil.copy2(root_fallback_path, output_path)
+            r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
+            return TTSResponse(
+                message="Tổng hợp thành công (Cache Hit)!",
+                filename=filename,
+                audio_url=r2_url or f"{url_prefix}/{filename}",
+                session_id=session_id,
+            )
+        except Exception as ce:
+            logger.warning(f"Không thể copy từ root cache: {ce}")
+    elif legacy_output_path.exists():
+        logger.info(f"⚡ CACHE HIT (Legacy): Đổi tên {legacy_output_path.name} -> {filename}")
+        try:
+            legacy_output_path.rename(output_path)
+            output_path.touch()
+            r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
+            return TTSResponse(
+                message="Tổng hợp thành công (Cache Hit)!",
+                filename=filename,
+                audio_url=r2_url or f"{url_prefix}/{filename}",
+                session_id=session_id,
+            )
+        except Exception as e:
+            logger.warning(f"Không thể đổi tên legacy cache file: {e}")
+            output_path = legacy_output_path
+            filename = legacy_output_path.name
+            legacy_output_path.touch()
+            r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
+            return TTSResponse(
+                message="Tổng hợp thành công (Cache Hit)!",
+                filename=filename,
+                audio_url=r2_url or f"{url_prefix}/{filename}",
+                session_id=session_id,
+            )
 
     logger.info(f"⏳ CACHE MISS: Bắt đầu sinh mới {filename}")
 
@@ -188,27 +309,77 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
 
     duration_val = None
     try:
-        duration_val = round(AudioSegment.from_file(str(out_path)).duration_seconds, 2)
+        duration_val = round(AudioSegment.from_file(str(output_path)).duration_seconds, 2)
     except Exception:
         pass
+
+    r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
 
     return TTSResponse(
         message="Tổng hợp thành công!",
         filename=filename,
-        audio_url=f"http://localhost:8000/outputs/{filename}",
+        audio_url=r2_url or f"{url_prefix}/{filename}",
         duration=duration_val,
+        session_id=session_id,
     )
 
 
-async def delete_single_audio(filename: str):
-    safe_filename = os.path.basename(filename)
-    file_path = OUTPUTS_DIR / safe_filename
 
-    deleted = False
+
+async def delete_audio_session(session_id: str):
+    """
+    Xóa trọn gói thư mục session trong outputs/audios/{session_id}/ và trên Cloudflare R2.
+    """
+    safe_session_id = os.path.basename(session_id.strip())
+    if not safe_session_id:
+        return {"message": "session_id không hợp lệ", "deleted": False}
+
+    session_dir = AUDIOS_DIR / safe_session_id
+    deleted_local = False
+    if session_dir.exists() and session_dir.is_dir():
+        try:
+            shutil.rmtree(session_dir, ignore_errors=True)
+            deleted_local = True
+            logger.info(f"🗑️ [Session] Đã xóa trọn gói thư mục session cục bộ: {safe_session_id}")
+        except Exception as e:
+            logger.error(f"Lỗi khi xóa thư mục session {safe_session_id}: {e}")
+
+    # Xóa trọn gói trên Cloudflare R2
+    deleted_r2_count = delete_session_from_r2(safe_session_id)
+
+    if not deleted_local and deleted_r2_count == 0:
+        return {"message": f"Session {safe_session_id} không tồn tại hoặc đã được xóa trước đó", "deleted": False}
+
+    return {
+        "message": f"Đã xóa trọn gói session {safe_session_id} ({deleted_r2_count} files R2)",
+        "deleted": True,
+        "session_id": safe_session_id,
+    }
+
+
+async def delete_single_audio(filename: str):
+    # Nếu filename chính là một session ID hoặc đường dẫn thư mục session
+    clean_name = filename.strip().replace("\\", "/").rstrip("/")
+    if clean_name.startswith("audios/") or (AUDIOS_DIR / os.path.basename(clean_name)).is_dir():
+        sess_name = os.path.basename(clean_name)
+        if (AUDIOS_DIR / sess_name).is_dir():
+            return await delete_audio_session(sess_name)
+
+    safe_filename = os.path.basename(filename)
+    # Tìm kiếm cả ở root OUTPUTS_DIR lẫn các thư mục con trong AUDIOS_DIR
+    file_path = OUTPUTS_DIR / safe_filename
+    if not file_path.exists():
+        # Kiểm tra xem có file nào trong AUDIOS_DIR trùng tên không
+        for s_dir in AUDIOS_DIR.iterdir():
+            if s_dir.is_dir() and (s_dir / safe_filename).exists():
+                file_path = s_dir / safe_filename
+                break
+
+    deleted_local = False
     if file_path.exists() and file_path.is_file():
         try:
             file_path.unlink()
-            deleted = True
+            deleted_local = True
             logger.info(f"🗑️ Đã xóa file theo yêu cầu: {safe_filename}")
         except Exception as e:
             logger.error(f"Lỗi khi xóa file {safe_filename}: {e}")
@@ -216,7 +387,7 @@ async def delete_single_audio(filename: str):
 
     # Xóa kèm file phụ đề .srt nếu có
     base_name = os.path.splitext(safe_filename)[0]
-    srt_candidate = OUTPUTS_DIR / f"{base_name}.srt"
+    srt_candidate = file_path.parent / f"{base_name}.srt"
     if srt_candidate.exists() and srt_candidate.is_file():
         try:
             srt_candidate.unlink()
@@ -224,10 +395,34 @@ async def delete_single_audio(filename: str):
         except Exception as e:
             logger.warning(f"Không thể xóa file SRT {srt_candidate.name}: {e}")
 
-    if not deleted:
+    # Xóa trên Cloudflare R2 bucket nếu có cấu hình
+    deleted_r2 = delete_audio_from_r2(safe_filename)
+
+    if not deleted_local and not deleted_r2:
         return {"message": "File không tồn tại hoặc đã được xóa trước đó", "deleted": False}
 
     return {"message": f"Đã xóa thành công file {safe_filename}", "deleted": True}
+
+
+async def delete_multiple_audios(filenames: list[str]):
+    """Xóa danh sách nhiều file âm thanh (kèm file srt và trên R2)"""
+    deleted_count = 0
+    unique_filenames = list(dict.fromkeys(filenames))
+    for fn in unique_filenames:
+        if not fn:
+            continue
+        try:
+            res = await delete_single_audio(fn)
+            if res.get("deleted"):
+                deleted_count += 1
+        except Exception as e:
+            logger.warning(f"Không thể xóa file {fn}: {e}")
+
+    return {
+        "message": f"Đã xóa thành công {deleted_count}/{len(unique_filenames)} file",
+        "deleted_count": deleted_count,
+        "total": len(unique_filenames),
+    }
 
 
 async def cleanup_orphan_files(request: CleanupOrphansRequest) -> CleanupOrphansResponse:
@@ -255,9 +450,76 @@ async def cleanup_orphan_files(request: CleanupOrphansRequest) -> CleanupOrphans
                     p.unlink(missing_ok=True)
                     deleted_count += 1
                     freed_bytes += f_size
-                    logger.info(f"🗑️ Đã dọn dẹp file rác: {p.name} ({f_size / 1024:.1f} KB)")
+                    logger.info(f"🗑️ Đã dọn dẹp file rác cục bộ: {p.name} ({f_size / 1024:.1f} KB)")
                 except Exception as e:
                     logger.warning(f"Không thể xoá file {p.name}: {e}")
+
+    # Dọn dẹp các thư mục video session cũ trong outputs/captions/ (chỉ giữ lại session mới nhất)
+    try:
+        if CAPTIONS_DIR.exists():
+            cap_dirs = sorted(
+                [d for d in CAPTIONS_DIR.iterdir() if d.is_dir()],
+                key=lambda d: d.stat().st_mtime,
+                reverse=True,
+            )
+            # Luôn giữ lại 1 session mới nhất (cap_dirs[0]), dọn các session cũ hơn
+            for old_cap in cap_dirs[1:]:
+                cap_age_sec = now - old_cap.stat().st_mtime
+                if request.force or cap_age_sec >= 3600:
+                    try:
+                        dir_size = sum(f.stat().st_size for f in old_cap.rglob("*") if f.is_file())
+                        shutil.rmtree(old_cap, ignore_errors=True)
+                        deleted_count += 1
+                        freed_bytes += dir_size
+                        logger.info(
+                            f"🗑️ [AutoCaption] Đã dọn dẹp video session cũ: {old_cap.name} "
+                            f"({dir_size / (1024 * 1024):.2f} MB)"
+                        )
+                    except Exception as de:
+                        logger.warning(f"Không thể xóa session cũ {old_cap.name}: {de}")
+    except Exception as ce:
+        logger.warning(f"Lỗi khi dọn dẹp video session trong captions: {ce}")
+
+    # Dọn dẹp các thư mục audio session cũ không còn trong active_session_ids
+    active_sessions = set(request.active_session_ids or [])
+    try:
+        if AUDIOS_DIR.exists():
+            for s_dir in AUDIOS_DIR.iterdir():
+                if not s_dir.is_dir():
+                    continue
+                if s_dir.name not in active_sessions:
+                    dir_age_sec = now - s_dir.stat().st_mtime
+                    min_age_sec = request.max_age_minutes * 60
+                    if request.force or dir_age_sec >= min_age_sec:
+                        try:
+                            dir_size = sum(f.stat().st_size for f in s_dir.rglob("*") if f.is_file())
+                            shutil.rmtree(s_dir, ignore_errors=True)
+                            deleted_count += 1
+                            freed_bytes += dir_size
+                            logger.info(
+                                f"🗑️ [AudioSession] Đã dọn dẹp thư mục session rác: {s_dir.name} "
+                                f"({dir_size / 1024:.1f} KB)"
+                            )
+                            # Xóa trên R2 nếu có
+                            delete_session_from_r2(s_dir.name)
+                        except Exception as se:
+                            logger.warning(f"Không thể xóa thư mục session {s_dir.name}: {se}")
+    except Exception as ae:
+        logger.warning(f"Lỗi khi dọn dẹp thư mục audios: {ae}")
+
+    # Dọn dẹp trên Cloudflare R2 bucket nếu có cấu hình
+    try:
+        r2_deleted, r2_bytes = await asyncio.to_thread(
+            cleanup_orphan_r2_files,
+            active_set,
+            active_sessions,
+            request.max_age_minutes,
+            request.force,
+        )
+        deleted_count += r2_deleted
+        freed_bytes += r2_bytes
+    except Exception as re:
+        logger.warning(f"Lỗi khi dọn dẹp file rác trên R2: {re}")
 
     freed_mb = round(freed_bytes / (1024 * 1024), 2)
     return CleanupOrphansResponse(
@@ -268,21 +530,36 @@ async def cleanup_orphan_files(request: CleanupOrphansRequest) -> CleanupOrphans
     )
 
 
+
 def _sync_stitch_audio(
     blocks,
     audio_format: str,
     crossfade_ms: int = 15,
     loudness_standard: str = "ebu_r128",
-) -> tuple[str, str | None, str | None, float, list[dict]]:
+    project_name: str | None = None,
+    session_id: str | None = None,
+) -> tuple[str, str | None, str | None, float, list[dict], str, str, Path]:
     """Hàm đồng bộ xử lý ghép nối audio, khử pop/click bằng micro-fade/crossfade, chuẩn hóa âm lượng EBU R128 và xuất file SRT trên worker thread."""
     combined = AudioSegment.empty()
     srt_entries: list[str] = []
     segments: list[dict] = []
     current_time_sec = 0.0
 
+    target_dir = OUTPUTS_DIR
+    url_prefix = "http://localhost:8000/outputs"
+    r2_prefix = "outputs/"
+    if session_id and session_id.strip():
+        safe_sess = os.path.basename(session_id.strip())
+        target_dir = AUDIOS_DIR / safe_sess
+        target_dir.mkdir(parents=True, exist_ok=True)
+        url_prefix = f"http://localhost:8000/outputs/audios/{safe_sess}"
+        r2_prefix = f"outputs/audios/{safe_sess}/"
+
     for idx, block in enumerate(blocks):
         safe_name = os.path.basename(block.filename)
-        file_p = OUTPUTS_DIR / safe_name
+        file_p = target_dir / safe_name
+        if not file_p.exists():
+            file_p = OUTPUTS_DIR / safe_name
 
         segment_audio = AudioSegment.from_file(str(file_p))
         duration_sec = len(segment_audio) / 1000.0
@@ -324,11 +601,20 @@ def _sync_stitch_audio(
             end_str = format_srt_time(end_sec)
             srt_entries.append(f"{len(srt_entries) + 1}\n{start_str} --> {end_str}\n{clean_text}\n")
 
-    file_id = uuid.uuid4().hex[:10]
+    proj_slug = ""
+    if project_name and project_name.strip():
+        proj_slug = slugify_vietnamese(project_name, max_chars=28)
+    if not proj_slug and blocks and getattr(blocks[0], "text", None):
+        proj_slug = slugify_vietnamese(blocks[0].text, max_chars=20)
+    if not proj_slug:
+        proj_slug = "audio"
+
+    now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    short_id = uuid.uuid4().hex[:6]
     out_ext = ".mp3" if audio_format.lower() == "mp3" else ".wav"
     export_format = "mp3" if audio_format.lower() == "mp3" else "wav"
-    out_filename = f"master_{file_id}{out_ext}"
-    out_path = OUTPUTS_DIR / out_filename
+    out_filename = f"master_{proj_slug}_{now_str}_{short_id}{out_ext}"
+    out_path = target_dir / out_filename
 
     combined = combined.set_frame_rate(44100)
 
@@ -336,7 +622,7 @@ def _sync_stitch_audio(
     norm_applied = False
     if loudness_standard in ("ebu_r128", "youtube"):
         target_i = -16.0 if loudness_standard == "ebu_r128" else -14.0
-        temp_raw_path = OUTPUTS_DIR / f"temp_raw_{file_id}.wav"
+        temp_raw_path = target_dir / f"temp_raw_{short_id}.wav"
         try:
             combined.export(str(temp_raw_path), format="wav")
             norm_applied = apply_ebur128_loudnorm(
@@ -368,36 +654,40 @@ def _sync_stitch_audio(
     srt_filename = None
     srt_url = None
     if srt_entries:
-        srt_filename = f"master_{file_id}.srt"
-        srt_path = OUTPUTS_DIR / srt_filename
+        srt_filename = f"master_{proj_slug}_{now_str}_{short_id}.srt"
+        srt_path = target_dir / srt_filename
         with open(srt_path, "w", encoding="utf-8") as sf:
             sf.write("\n".join(srt_entries))
-        srt_url = f"http://localhost:8000/outputs/{srt_filename}"
+        srt_url = f"{url_prefix}/{srt_filename}"
         logger.info(f"📝 Đã tạo file phụ đề SRT đồng bộ: {srt_filename}")
 
-    return out_filename, srt_filename, srt_url, round(combined.duration_seconds, 2), segments
+    return out_filename, srt_filename, srt_url, round(combined.duration_seconds, 2), segments, r2_prefix, url_prefix, target_dir
 
 
 async def stitch_audio_blocks(request: StitchRequest, background_tasks: BackgroundTasks) -> StitchResponse:
     if not request.blocks:
         raise HTTPException(status_code=400, detail="Danh sách phân đoạn rỗng")
 
+    sess_dir = (AUDIOS_DIR / os.path.basename(request.session_id.strip())) if (request.session_id and request.session_id.strip()) else None
+
     for idx, block in enumerate(request.blocks):
         safe_name = os.path.basename(block.filename)
-        file_p = OUTPUTS_DIR / safe_name
-        if not file_p.exists():
+        found = (sess_dir / safe_name).exists() if sess_dir else False
+        if not found and not (OUTPUTS_DIR / safe_name).exists():
             raise HTTPException(
                 status_code=404,
                 detail=f"Không tìm thấy file audio ở phân đoạn {idx + 1}: {safe_name}",
             )
 
     try:
-        out_filename, srt_filename, srt_url, total_dur, segments = await asyncio.to_thread(
+        out_filename, srt_filename, srt_url, total_dur, segments, r2_prefix, url_prefix, target_dir = await asyncio.to_thread(
             _sync_stitch_audio,
             request.blocks,
             request.format,
             request.crossfade_ms,
             request.loudness_standard,
+            request.project_name,
+            request.session_id,
         )
     except Exception as e:
         logger.error(f"Lỗi xuất file master audio: {e}")
@@ -405,12 +695,22 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
 
     background_tasks.add_task(cleanup_old_files)
 
+    r2_url = upload_audio_to_r2(target_dir / out_filename, object_key=f"{r2_prefix}{out_filename}")
+    r2_srt_url = None
+    if srt_filename:
+        r2_srt_url = upload_audio_to_r2(
+            target_dir / srt_filename,
+            object_key=f"{r2_prefix}{srt_filename}",
+            content_type="text/plain; charset=utf-8",
+        )
+
     return StitchResponse(
         message="Ghép nối phân đoạn thành công!",
         filename=out_filename,
-        audio_url=f"http://localhost:8000/outputs/{out_filename}",
+        audio_url=r2_url or f"{url_prefix}/{out_filename}",
         srt_filename=srt_filename,
-        srt_url=srt_url,
+        srt_url=r2_srt_url or srt_url,
         total_duration=total_dur,
         segments=[StitchSegmentItem(**s) for s in segments],
     )
+
