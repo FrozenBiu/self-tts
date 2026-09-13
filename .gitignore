@@ -13,6 +13,8 @@ backend/venv/
 backend/.env
 backend/local_models/
 backend/outputs/
+backend/presets/bgm/custom/*
+!backend/presets/bgm/custom/.gitkeep
 backend/scratch_*.txt
 backend/*.scratch.*
 

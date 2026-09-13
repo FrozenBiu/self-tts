@@ -21,7 +21,8 @@ interface ScriptBlockItemProps {
   index: number;
   total: number;
   voices: Voice[];
-  isPlaying: boolean;
+  isHighlighted?: boolean;
+  onSeekToThisBlock?: () => void;
   onPlay: () => void;
   onStop: () => void;
   onUpdate: (updated: Partial<ScriptBlock>) => void;
@@ -38,6 +39,8 @@ export function ScriptBlockItem({
   total,
   voices,
   isPlaying,
+  isHighlighted = false,
+  onSeekToThisBlock,
   onPlay,
   onStop,
   onUpdate,
@@ -81,26 +84,33 @@ export function ScriptBlockItem({
 
   return (
     <div
-      className={`group relative flex flex-col rounded-xl border transition-all duration-200 p-3 ${
+      id={`studio-block-${block.id}`}
+      className={`group relative flex flex-col rounded-xl border transition-all duration-300 p-3 ${
         isPlaying
           ? "border-primary bg-primary/10 shadow-[0_0_20px_rgba(245,158,11,0.15)] ring-1 ring-primary/40"
-          : isRendering
-            ? "border-amber-500/40 bg-amber-500/5"
-            : "border-white/5 bg-surface-dim hover:border-white/15 hover:bg-surface-dim/90"
+          : isHighlighted
+            ? "border-primary bg-primary/15 shadow-[0_0_25px_rgba(245,158,11,0.25)] ring-2 ring-primary/60 scale-[1.008]"
+            : isRendering
+              ? "border-amber-500/40 bg-amber-500/5"
+              : "border-white/5 bg-surface-dim hover:border-white/15 hover:bg-surface-dim/90"
       }`}
     >
       {/* Row 1: Index tag + Text Input + Fast Action Tools */}
       <div className="flex items-start gap-2.5">
         {/* Index badge */}
-        <span
-          className={`shrink-0 mt-0.5 px-2 py-0.5 rounded-md font-mono-data text-[12px] font-bold ${
-            isPlaying
-              ? "bg-primary text-black"
-              : "bg-surface-variant/80 text-on-surface-variant border border-white/5"
+        <button
+          type="button"
+          onClick={onSeekToThisBlock}
+          disabled={!onSeekToThisBlock}
+          title={onSeekToThisBlock ? "Nhấp để nhảy tới câu này trong Audio chính" : undefined}
+          className={`shrink-0 mt-0.5 px-2 py-0.5 rounded-md font-mono-data text-[12px] font-bold transition-all ${
+            isPlaying || isHighlighted
+              ? "bg-primary text-black shadow-md scale-105"
+              : "bg-surface-variant/80 text-on-surface-variant border border-white/5 hover:border-primary/40 hover:text-primary cursor-pointer"
           }`}
         >
           #{index + 1}
-        </span>
+        </button>
 
         {/* Textarea gọn gàng */}
         <textarea
@@ -167,6 +177,15 @@ export function ScriptBlockItem({
             <span className="flex items-center gap-1 text-[11px] text-on-surface-variant/60 font-mono-data">
               <Clock className="w-3 h-3" />
               Chờ render
+            </span>
+          )}
+
+          {isHighlighted && (
+            <span className="flex items-center gap-1.5 text-[10px] font-mono-data font-bold text-primary bg-primary/15 px-2 py-0.5 rounded-full border border-primary/30 animate-pulse shadow-sm">
+              <span className="material-symbols-outlined text-[13px] animate-bounce">
+                volume_up
+              </span>
+              Đang phát
             </span>
           )}
 

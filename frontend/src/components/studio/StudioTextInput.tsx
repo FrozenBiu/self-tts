@@ -1,5 +1,18 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
+import { toast } from "sonner";
+import {
+  FileUp,
+  UploadCloud,
+  CheckCircle2,
+  Save,
+  RotateCcw,
+  Sparkles,
+  Clock,
+  FileText,
+  X,
+} from "lucide-react";
 import { NON_VERBAL_SYMBOLS } from "../../constants/studio";
+import { parseScriptFile } from "../../utils/scriptImporter";
 import type { PauseSettings, PronunciationWord } from "../../store/useTTSStore";
 
 interface StudioTextInputProps {
@@ -13,6 +26,8 @@ interface StudioTextInputProps {
   isLoading: boolean;
   elapsedTime: number;
   generationProgress: { current: number; total: number };
+  onClearSession?: () => void;
+  blocksCount?: number;
 }
 
 export const StudioTextInput: React.FC<StudioTextInputProps> = ({
@@ -26,7 +41,166 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
   isLoading,
   elapsedTime,
   generationProgress,
+  onClearSession,
+  blocksCount = 0,
 }) => {
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [isParsingFile, setIsParsingFile] = useState(false);
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+  const [isSavedRecently, setIsSavedRecently] = useState(false);
+  const [showRecoveryBanner, setShowRecoveryBanner] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const initialCheckDoneRef = useRef(false);
+
+  // ── Khôi phục phiên làm việc (Crash Recovery) khi mount ────────────────────
+  useEffect(() => {
+    if (initialCheckDoneRef.current) return;
+    initialCheckDoneRef.current = true;
+
+    try {
+      const savedTimeStr = localStorage.getItem("tts_draft_last_saved");
+      const hasContent = Boolean(text.trim() || blocksCount > 0);
+      if (hasContent && savedTimeStr) {
+        const timeNum = parseInt(savedTimeStr, 10);
+        if (!isNaN(timeNum)) {
+          const date = new Date(timeNum);
+          const formatted = date.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          setLastSavedTime(formatted);
+          setShowRecoveryBanner(true);
+        }
+      }
+    } catch {}
+  }, []);
+
+  // ── Tự động lưu bản nháp (Auto-Save Debounce 1.2s) ─────────────────────────
+  useEffect(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    if (!text.trim()) return;
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      try {
+        const now = Date.now();
+        localStorage.setItem("tts_draft_last_saved", now.toString());
+        const timeStr = new Date(now).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        setLastSavedTime(timeStr);
+        setIsSavedRecently(true);
+        setTimeout(() => setIsSavedRecently(false), 2000);
+      } catch {}
+    }, 1200);
+
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [text]);
+
+  const handleManualSaveDraft = () => {
+    try {
+      const now = Date.now();
+      localStorage.setItem("tts_draft_last_saved", now.toString());
+      const timeStr = new Date(now).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      setLastSavedTime(timeStr);
+      setIsSavedRecently(true);
+      toast.success(`Đã lưu an toàn bản nháp kịch bản (${timeStr})!`);
+      setTimeout(() => setIsSavedRecently(false), 2000);
+    } catch {
+      toast.error("Không thể lưu bản nháp vào bộ nhớ trình duyệt.");
+    }
+  };
+
+  // ── Xử lý file kịch bản được nạp (.txt, .docx, .md) ──────────────────────
+  const handleProcessFile = async (file: File) => {
+    const ext = file.name.toLowerCase().split(".").pop() || "";
+    if (!["txt", "docx", "md"].includes(ext)) {
+      toast.error(`Định dạng .${ext} chưa được hỗ trợ. Vui lòng chọn file .txt, .docx hoặc .md.`);
+      return;
+    }
+
+    setIsParsingFile(true);
+    const toastId = toast.loading(`Đang đọc file kịch bản "${file.name}"...`);
+
+    try {
+      const parsed = await parseScriptFile(file);
+
+      // Nếu ô text hiện tại đang có dữ liệu: hỏi người dùng Thay thế hay Nối tiếp
+      if (text.trim().length > 0) {
+        toast.dismiss(toastId);
+        toast(`Nạp thành công "${parsed.filename}" (${parsed.wordCount} từ)`, {
+          description: "Kịch bản hiện tại đang có nội dung. Bạn muốn Thay thế hay Nối tiếp vào cuối?",
+          duration: 8000,
+          action: {
+            label: "Thay thế kịch bản",
+            onClick: () => {
+              onChangeText(parsed.text);
+              setShowRecoveryBanner(false);
+              toast.success(`Đã thay thế kịch bản bằng nội dung file "${parsed.filename}"`);
+            },
+          },
+          cancel: {
+            label: "Nối tiếp vào cuối",
+            onClick: () => {
+              const updated = text.trim() + "\n\n" + parsed.text;
+              onChangeText(updated);
+              toast.success(`Đã nối thêm ${parsed.wordCount} từ vào cuối kịch bản hiện tại!`);
+            },
+          },
+        });
+      } else {
+        onChangeText(parsed.text);
+        setShowRecoveryBanner(false);
+        toast.success(
+          `Đã nạp thành công kịch bản từ "${parsed.filename}" (${parsed.wordCount} từ • ${parsed.charCount} ký tự)!`,
+          { id: toastId }
+        );
+      }
+    } catch (err: any) {
+      toast.error(`Lỗi nạp file: ${err?.message || "Không thể đọc nội dung file"}`, { id: toastId });
+    } finally {
+      setIsParsingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // ── Sự kiện Drag & Drop ───────────────────────────────────────────────────
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingOver) setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Chỉ tắt dragover khi rời khỏi container cha
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      await handleProcessFile(file);
+    }
+  };
+
   const handleInsertSymbol = (symbol: string) => {
     const textarea = textareaRef.current;
     if (!textarea) {
@@ -51,16 +225,96 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
 
   return (
     <div className="flex flex-col gap-3 2k:gap-4 z-10">
+      {/* ── Crash Recovery Notification Banner ─────────────────────────────── */}
+      {showRecoveryBanner && text.trim().length > 0 && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-secondary/10 border border-secondary/25 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="p-1 rounded-md bg-secondary/20 text-secondary shrink-0">
+              <RotateCcw className="w-3.5 h-3.5" />
+            </span>
+            <p className="text-xs text-on-surface truncate">
+              <span className="font-semibold text-secondary">Khôi phục phiên làm việc:</span> Đã nạp lại bản nháp kịch bản{" "}
+              {lastSavedTime && <span>(lưu lúc {lastSavedTime})</span>}
+              {blocksCount > 0 && <span> • {blocksCount} câu phân đoạn</span>}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowRecoveryBanner(false)}
+              className="px-2.5 py-1 rounded-lg text-xs font-label-caps bg-white/10 hover:bg-white/20 text-on-surface transition-colors"
+            >
+              Tiếp tục làm
+            </button>
+            {onClearSession && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRecoveryBanner(false);
+                  onClearSession();
+                }}
+                className="px-2 py-1 rounded-lg text-xs font-label-caps text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors"
+                title="Bỏ bản nháp này để làm bài mới"
+              >
+                Bài mới
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowRecoveryBanner(false)}
+              className="p-1 text-on-surface-variant/60 hover:text-on-surface transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Input Header & Toolbar ─────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <label
-          className="font-label-caps text-label-caps 2k:text-sm text-on-surface-variant flex items-center gap-2"
-          htmlFor="script-input"
-        >
-          <span className="material-symbols-outlined text-[18px] 2k:text-[20px]">
-            edit_document
-          </span>
-          Văn bản đầu vào
-        </label>
+        <div className="flex items-center gap-3">
+          <label
+            className="font-label-caps text-label-caps 2k:text-sm text-on-surface-variant flex items-center gap-2"
+            htmlFor="script-input"
+          >
+            <span className="material-symbols-outlined text-[18px] 2k:text-[20px]">
+              edit_document
+            </span>
+            Văn bản đầu vào
+          </label>
+
+          {/* Hidden File Input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.docx,.md"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                handleProcessFile(e.target.files[0]);
+              }
+            }}
+            className="hidden"
+          />
+
+          {/* Nút Nạp Kịch Bản (.txt, .docx, .md) */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isParsingFile}
+            className="px-2.5 py-1 rounded-lg text-xs font-label-caps bg-surface-dim hover:bg-primary/20 text-on-surface hover:text-primary border border-white/10 hover:border-primary/30 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 group"
+            title="Nạp file kịch bản (.txt, .docx, .md) từ máy tính"
+          >
+            {isParsingFile ? (
+              <span className="material-symbols-outlined text-[14px] animate-spin text-primary">
+                sync
+              </span>
+            ) : (
+              <FileUp className="w-3.5 h-3.5 text-primary group-hover:scale-110 transition-transform" />
+            )}
+            <span>Nạp file kịch bản</span>
+          </button>
+        </div>
 
         {/* Non-verbal symbols toolbar */}
         <div className="flex flex-wrap items-center gap-2">
@@ -85,29 +339,94 @@ export const StudioTextInput: React.FC<StudioTextInputProps> = ({
         </div>
       </div>
 
-      <textarea
-        ref={textareaRef as any}
-        id="script-input"
-        className="w-full h-56 2k:h-72 bg-surface-dim/80 backdrop-blur border border-white/10 rounded-xl 2k:rounded-2xl p-5 2k:p-6 text-on-surface text-sm 2k:text-base 2k:leading-relaxed focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none placeholder:text-on-surface-variant/50 font-body-md shadow-inner"
-        placeholder="Nhập nội dung cần chuyển thành giọng nói tại đây... (Hỗ trợ tiếng Việt và các thẻ cảm xúc như [laughter], [sigh])"
-        value={text}
-        onChange={(e) => onChangeText(e.target.value)}
-      ></textarea>
+      {/* ── Textarea Area với Drag & Drop ──────────────────────────────────── */}
+      <div
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className="relative w-full rounded-xl 2k:rounded-2xl"
+      >
+        <textarea
+          ref={textareaRef as any}
+          id="script-input"
+          className={`w-full h-56 2k:h-72 bg-surface-dim/80 backdrop-blur border rounded-xl 2k:rounded-2xl p-5 2k:p-6 text-on-surface text-sm 2k:text-base 2k:leading-relaxed focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none placeholder:text-on-surface-variant/50 font-body-md shadow-inner ${
+            isDraggingOver
+              ? "border-primary ring-2 ring-primary/40 bg-primary/5"
+              : "border-white/10"
+          }`}
+          placeholder="Nhập nội dung cần chuyển thành giọng nói tại đây... Hoặc kéo thả file kịch bản (.txt, .docx, .md) vào đây để nạp tự động."
+          value={text}
+          onChange={(e) => onChangeText(e.target.value)}
+        ></textarea>
 
-      <div className="flex justify-between items-center mt-1 px-1">
-        <div className="flex gap-2">
+        {/* Drag overlay feedback */}
+        {isDraggingOver && (
+          <div className="absolute inset-0 rounded-xl 2k:rounded-2xl bg-black/75 backdrop-blur-sm border-2 border-dashed border-primary flex flex-col items-center justify-center gap-2 pointer-events-none animate-in fade-in duration-200 z-20">
+            <UploadCloud className="w-10 h-10 text-primary animate-bounce" />
+            <p className="text-sm font-label-caps text-primary font-bold">
+              Thả file .txt, .docx, .md vào đây để nạp kịch bản
+            </p>
+            <span className="text-xs text-on-surface-variant/80">
+              Hệ thống sẽ tự động bóc tách nội dung văn bản sạch
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Footer Bar: Badges, Auto-Save Status, Char Counter ─────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-1 px-1">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center rounded-md bg-secondary/10 px-2.5 2k:px-3 py-1 2k:py-1.5 font-label-caps text-[10px] 2k:text-xs uppercase text-secondary ring-1 ring-inset ring-secondary/20">
             600+ Ngôn ngữ
           </span>
           <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 2k:px-3 py-1 2k:py-1.5 font-label-caps text-[10px] 2k:text-xs uppercase text-primary ring-1 ring-inset ring-primary/20">
             OmniVoice 24kHz
           </span>
+
+          {/* Auto-save Status Indicator */}
+          {text.trim().length > 0 && (
+            <button
+              type="button"
+              onClick={handleManualSaveDraft}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono-data border transition-all cursor-pointer ${
+                isSavedRecently
+                  ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
+                  : "bg-white/5 border-white/10 text-on-surface-variant/70 hover:text-on-surface hover:bg-white/10"
+              }`}
+              title="Bản nháp được lưu tự động trên trình duyệt. Bấm để lưu ngay."
+            >
+              {isSavedRecently ? (
+                <>
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 animate-in zoom-in-50" />
+                  <span>Đã lưu nháp</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80 shrink-0" />
+                  <span>
+                    {lastSavedTime ? `Đã lưu ${lastSavedTime}` : "Đã lưu nháp"}
+                  </span>
+                </>
+              )}
+            </button>
+          )}
         </div>
-        <span
-          className={`font-mono-data text-mono-data text-xs 2k:text-sm ${text.length > 4500 ? "text-error" : "text-on-surface-variant"}`}
-        >
-          {text.length} / 5000 chars
-        </span>
+
+        <div className="flex items-center gap-3 self-end sm:self-auto">
+          {text.trim().length > 0 && (
+            <span className="text-[11px] font-mono-data text-on-surface-variant/60">
+              {text.trim().split(/\s+/).filter(Boolean).length} từ
+            </span>
+          )}
+          <span
+            className={`font-mono-data text-mono-data text-xs 2k:text-sm ${
+              text.length > 4500 ? "text-error" : "text-on-surface-variant"
+            }`}
+          >
+            {text.length} / 5000 chars
+          </span>
+        </div>
       </div>
 
       {isLoading && (

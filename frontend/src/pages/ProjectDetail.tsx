@@ -470,6 +470,8 @@ export default function ProjectDetail() {
         })),
         format: "mp3",
         project_name: project.name,
+        crossfade_ms: useTTSStore.getState().pauseSettings?.crossfade ?? 15,
+        loudness_standard: useTTSStore.getState().loudnessStandard || "ebu_r128",
       };
 
       const res = await fetch("http://localhost:8000/api/tts/stitch", {

@@ -18,19 +18,33 @@ async def get_voices():
     return await fetch_all_voices()
 
 
-@router.post("/clone", summary="Clone giọng đọc từ file tải lên và tạo cache .pt")
+@router.post("/clone", summary="Clone giọng đọc từ 1 hoặc nhiều file mẫu âm thanh và tạo cache .pt")
 async def clone_voice(
-    file: UploadFile = File(...),
     name: str = Form(...),
+    files: list[UploadFile] | None = File(None),
+    file: UploadFile | None = File(None),
+    transcripts: str | None = Form(None),
     transcript: str | None = Form(None),
     description: str = Form("Giọng tự tạo"),
     gender: str = Form("all"),
     icon: str = Form("record_voice_over"),
 ):
+    # Tập hợp các file tải lên
+    uploaded_files: list[UploadFile] = []
+    if files:
+        uploaded_files.extend(files)
+    if file and file not in uploaded_files:
+        uploaded_files.append(file)
+
+    if not uploaded_files:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Vui lòng cung cấp ít nhất 1 file âm thanh mẫu (.wav, .mp3, .m4a)")
+
     return await clone_custom_voice(
-        file=file,
+        files=uploaded_files,
         name=name,
         transcript=transcript,
+        transcripts=transcripts,
         description=description,
         gender=gender,
         icon=icon,
@@ -42,9 +56,14 @@ async def delete_custom_voice(voice_id: str):
     return await remove_custom_voice(voice_id)
 
 
-@router.post("/random", summary="Tạo giọng ngẫu nhiên để xem trước (preview)")
-async def generate_random_voice(background_tasks: BackgroundTasks):
-    return await generate_random_preview(background_tasks)
+from app.schemas.voice import RandomVoiceRequest, RandomVoiceResponse
+
+@router.post("/random", response_model=RandomVoiceResponse, summary="Tạo giọng ngẫu nhiên hoặc thiết kế giọng tùy chỉnh để xem trước")
+async def generate_random_voice(
+    background_tasks: BackgroundTasks,
+    request: RandomVoiceRequest | None = None,
+):
+    return await generate_random_preview(background_tasks, req=request)
 
 
 @router.delete("/discard-random/{filename}", summary="Huỷ bỏ file preview ngẫu nhiên không sử dụng")

@@ -167,6 +167,67 @@ export const PauseSettingsModal: React.FC<PauseSettingsModalProps> = ({ isOpen, 
                 onChange={(val) => setLocalSettings((prev) => ({ ...prev, newline: val }))}
               />
             </div>
+
+            {/* Audio Engineering Section: Khử Pop/Click & Nối mượt Crossfade */}
+            <div className="col-span-1 md:col-span-2 pt-6 border-t border-white/10 flex flex-col gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 mt-0.5">
+                    <span className="material-symbols-outlined text-[18px]">graphic_eq</span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm sm:text-[15px] font-body-md text-on-surface font-medium">
+                        Khử tiếng Pop & Nối mượt (Crossfade)
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-primary/15 text-primary border border-primary/20">
+                        {localSettings.crossfade ?? 15}ms
+                      </span>
+                    </div>
+                    <p className="text-xs text-on-surface-variant/70 mt-0.5">
+                      Áp dụng micro-fade ở đầu/cuối câu để triệt tiêu hoàn toàn tiếng "bụp/tách/click" cơ học khi ghép nối.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Stepper điều chỉnh ms */}
+                <div className="flex items-center h-10 border border-white/20 rounded-xl overflow-hidden bg-surface-dim/80 shadow-inner self-end sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocalSettings((prev) => ({
+                        ...prev,
+                        crossfade: Math.max(0, (prev.crossfade ?? 15) - 5),
+                      }))
+                    }
+                    disabled={(localSettings.crossfade ?? 15) <= 0}
+                    className="w-10 h-full flex items-center justify-center text-on-surface-variant hover:text-white hover:bg-white/10 disabled:opacity-20 transition-colors border-r border-white/15"
+                    title="Giảm thời gian fade"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">remove</span>
+                  </button>
+
+                  <span className="w-20 text-center font-mono-data text-sm font-bold text-[#FFB74D] select-none">
+                    {localSettings.crossfade ?? 15} ms
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocalSettings((prev) => ({
+                        ...prev,
+                        crossfade: Math.min(100, (prev.crossfade ?? 15) + 5),
+                      }))
+                    }
+                    disabled={(localSettings.crossfade ?? 15) >= 100}
+                    className="w-10 h-full flex items-center justify-center text-on-surface-variant hover:text-white hover:bg-white/10 disabled:opacity-20 transition-colors border-l border-white/15"
+                    title="Tăng thời gian fade"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">add</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
