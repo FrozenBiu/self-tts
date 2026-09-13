@@ -85,6 +85,7 @@ class TTSResponse(BaseModel):
     message: str
     filename: str
     audio_url: str
+    duration: float | None = None
 
 
 class CleanupOrphansRequest(BaseModel):
@@ -119,6 +120,24 @@ class StitchRequest(BaseModel):
     blocks: list[StitchBlockItem] = Field(..., min_length=1, description="Danh sách các phân đoạn cần ghép nối")
     format: str = Field(default="mp3", description="Định dạng âm thanh đầu ra: 'mp3' hoặc 'wav'")
     project_name: str | None = Field(default=None, description="Tên dự án (tùy chọn)")
+    crossfade_ms: int = Field(
+        default=15,
+        ge=0,
+        le=200,
+        description="Độ dài crossfade / micro-fade khử pop/click (mili-giây) ở điểm chuyển tiếp giữa các câu (mặc định 15ms).",
+    )
+    loudness_standard: str = Field(
+        default="ebu_r128",
+        description="Chuẩn âm lượng phát thanh: 'ebu_r128' (-16 LUFS Podcast/Broadcast), 'youtube' (-14 LUFS), hoặc 'peak' (-1.0 dBFS Peak).",
+    )
+
+
+class StitchSegmentItem(BaseModel):
+    index: int
+    filename: str
+    start: float
+    end: float
+    duration: float
 
 
 class StitchResponse(BaseModel):
@@ -128,3 +147,4 @@ class StitchResponse(BaseModel):
     srt_filename: str | None = None
     srt_url: str | None = None
     total_duration: float
+    segments: list[StitchSegmentItem] = []

@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import {
   Layers,
   Plus,
@@ -7,6 +7,9 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
+  Undo2,
+  Redo2,
+  Music,
 } from "lucide-react";
 import { ScriptBlockItem } from "../project/ScriptBlockItem";
 import type { ScriptBlock, Voice } from "../../store/useTTSStore";
@@ -17,6 +20,7 @@ interface StudioOutputSectionProps {
   elapsedTime: number;
   onNavigateToVideo: () => void;
   onDownload: () => void;
+  onOpenBgmModal?: () => void;
   studioBlocks: ScriptBlock[];
   voices: Voice[];
   hasModifiedSegments: boolean;
@@ -34,6 +38,10 @@ interface StudioOutputSectionProps {
   onInsertBlockBelow: (index: number) => void;
   onAddBlock: () => void;
   onRenderBlock: (id: string) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
@@ -41,6 +49,7 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
   elapsedTime,
   onNavigateToVideo,
   onDownload,
+  onOpenBgmModal,
   studioBlocks,
   voices,
   hasModifiedSegments,
@@ -58,8 +67,55 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
   onInsertBlockBelow,
   onAddBlock,
   onRenderBlock,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
 }) => {
   const masterAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [activePlaybackBlockId, setActivePlaybackBlockId] = useState<string | null>(null);
+  const isMasterPlayingRef = useRef(false);
+
+  // Tính toán timeline cho từng block dựa vào duration và pauseAfter
+  const blockTimelines = useMemo(() => {
+    let current = 0;
+    return studioBlocks.map((b) => {
+      const dur = b.duration || 0;
+      const pause = typeof b.pauseAfter === "number" ? b.pauseAfter : 0.45;
+      const start = current;
+      const end = current + dur;
+      current = end + pause;
+      return { id: b.id, start, end };
+    });
+  }, [studioBlocks]);
+
+  const handleTimeUpdate = (currentTime: number) => {
+    if (!isMasterPlayingRef.current) return;
+    const active = blockTimelines.find((t, i) => {
+      const nextStart = blockTimelines[i + 1]?.start ?? t.end + 10;
+      return currentTime >= t.start && currentTime < nextStart;
+    });
+
+    const newId = active ? active.id : null;
+    if (newId !== activePlaybackBlockId) {
+      setActivePlaybackBlockId(newId);
+      if (newId) {
+        const el = document.getElementById(`studio-block-${newId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }
+    }
+  };
+
+  const handleSeekMaster = (blockIndex: number) => {
+    if (!masterAudioRef.current || !blockTimelines[blockIndex]) return;
+    const targetStart = blockTimelines[blockIndex].start;
+    masterAudioRef.current.currentTime = targetStart;
+    if (masterAudioRef.current.paused) {
+      masterAudioRef.current.play().catch(() => {});
+    }
+  };
 
   if (!audioUrl && studioBlocks.length === 0) {
     return null;
@@ -97,6 +153,17 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
                 </span>
                 LÀM VIDEO NGAY
               </button>
+              {onOpenBgmModal && (
+                <button
+                  type="button"
+                  onClick={onOpenBgmModal}
+                  className="px-3.5 py-1.5 bg-indigo-500/15 hover:bg-indigo-500 hover:text-white text-indigo-300 border border-indigo-500/40 rounded-lg font-label-caps text-xs transition-all shadow-sm flex items-center gap-1.5 font-semibold group"
+                  title="Lồng nhạc nền và tự động giảm âm lượng khi nói (DSP Sidechain Auto-Ducking)"
+                >
+                  <Music className="w-3.5 h-3.5 text-indigo-400 group-hover:text-white transition-colors" />
+                  LỒNG NHẠC NỀN (BGM)
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onDownload}
@@ -117,9 +184,20 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
               className="w-full h-10 outline-none"
               style={{ colorScheme: "dark" }}
               onPlay={() => {
+                isMasterPlayingRef.current = true;
                 if (masterAudioRef.current) {
                   globalAudio.play(masterAudioRef.current);
                 }
+              }}
+              onPause={() => {
+                isMasterPlayingRef.current = false;
+              }}
+              onEnded={() => {
+                isMasterPlayingRef.current = false;
+                setActivePlaybackBlockId(null);
+              }}
+              onTimeUpdate={(e) => {
+                handleTimeUpdate(e.currentTarget.currentTime);
               }}
               onError={() => {
                 console.warn("File âm thanh chính không khả dụng hoặc đã hết hạn.");
@@ -171,6 +249,42 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
                 </button>
               )}
 
+              {/* Nút Undo / Redo cho phân đoạn câu */}
+              {(onUndo || onRedo) && (
+                <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-0.5">
+                  {onUndo && (
+                    <button
+                      type="button"
+                      onClick={onUndo}
+                      disabled={!canUndo}
+                      className={`p-1.5 rounded-md transition-colors ${
+                        canUndo
+                          ? "text-on-surface-variant hover:text-on-surface hover:bg-white/10 cursor-pointer"
+                          : "text-on-surface-variant/30 cursor-not-allowed"
+                      }`}
+                      title="Hoàn tác (Ctrl+Z)"
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {onRedo && (
+                    <button
+                      type="button"
+                      onClick={onRedo}
+                      disabled={!canRedo}
+                      className={`p-1.5 rounded-md transition-colors ${
+                        canRedo
+                          ? "text-on-surface-variant hover:text-on-surface hover:bg-white/10 cursor-pointer"
+                          : "text-on-surface-variant/30 cursor-not-allowed"
+                      }`}
+                      title="Làm lại (Ctrl+Y)"
+                    >
+                      <Redo2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={onOpenSaveProjectModal}
@@ -208,6 +322,8 @@ export const StudioOutputSection: React.FC<StudioOutputSectionProps> = ({
                     total={studioBlocks.length}
                     voices={voices}
                     isPlaying={playingStudioBlockId === block.id}
+                    isHighlighted={activePlaybackBlockId === block.id}
+                    onSeekToThisBlock={audioUrl ? () => handleSeekMaster(idx) : undefined}
                     onPlay={() => {
                       if (masterAudioRef.current && !masterAudioRef.current.paused) {
                         masterAudioRef.current.pause();

@@ -293,7 +293,12 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                       <p className="font-label-caps text-[11px] 2k:text-sm text-on-surface truncate px-1">
                         {voice.name}
                       </p>
-                      <p className="text-[10px] 2k:text-xs text-on-surface-variant mt-0.5 line-clamp-2 px-1">
+                      {voice.samples_count && voice.samples_count > 1 && (
+                        <span className="inline-block text-[9px] px-1.5 py-0.2 rounded-full bg-primary/20 text-primary border border-primary/30 font-mono-data font-semibold mt-0.5">
+                          {voice.samples_count} mẫu
+                        </span>
+                      )}
+                      <p className="text-[10px] 2k:text-xs text-on-surface-variant mt-0.5 line-clamp-1 px-1">
                         {voice.description}
                       </p>
                     </div>

@@ -1,5 +1,5 @@
 import React from "react";
-import type { Project } from "../../store/useTTSStore";
+import { useTTSStore, type Project } from "../../store/useTTSStore";
 
 interface ModelSettingsPanelProps {
   cfg_value: number;
@@ -240,6 +240,71 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
           <p className="text-[11px] text-on-surface-variant/70 leading-relaxed">
             Cắt ù (Low-cut 75Hz), tăng độ sáng & âm xát (Air 9kHz), nén động học
             phát thanh và chuẩn hóa âm lượng.
+          </p>
+        </div>
+
+        {/* Chuẩn âm lượng phát thanh (EBU R128 / ITU-R BS.1770) */}
+        <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-surface-dim border border-white/10 hover:border-primary/30 transition-all shadow-inner">
+          <div className="flex items-center justify-between">
+            <label className="font-label-caps text-xs 2k:text-sm text-on-surface flex items-center gap-2 font-medium">
+              <span className="material-symbols-outlined text-primary text-[18px]">
+                equalizer
+              </span>
+              Chuẩn âm lượng (Loudness)
+            </label>
+            <span className="text-[10px] 2k:text-xs font-mono font-bold text-primary/90 bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
+              {useTTSStore.getState().loudnessStandard === "ebu_r128"
+                ? "-16 LUFS"
+                : useTTSStore.getState().loudnessStandard === "youtube"
+                  ? "-14 LUFS"
+                  : "Peak"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5 bg-surface-variant/40 p-1 rounded-lg border border-white/5 text-[11px] font-label-caps">
+            <button
+              type="button"
+              onClick={() => useTTSStore.getState().setLoudnessStandard("ebu_r128")}
+              className={`py-1.5 px-1 rounded text-center transition-all ${
+                useTTSStore.getState().loudnessStandard === "ebu_r128"
+                  ? "bg-primary text-black font-semibold shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+              }`}
+              title="Chuẩn phát thanh quốc tế EBU R128 (-16 LUFS) cho Podcast, Sách nói & Radio"
+            >
+              Podcast (-16)
+            </button>
+            <button
+              type="button"
+              onClick={() => useTTSStore.getState().setLoudnessStandard("youtube")}
+              className={`py-1.5 px-1 rounded text-center transition-all ${
+                useTTSStore.getState().loudnessStandard === "youtube"
+                  ? "bg-primary text-black font-semibold shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+              }`}
+              title="Tối ưu cho YouTube, Facebook & Video Shorts (-14 LUFS)"
+            >
+              YouTube (-14)
+            </button>
+            <button
+              type="button"
+              onClick={() => useTTSStore.getState().setLoudnessStandard("peak")}
+              className={`py-1.5 px-1 rounded text-center transition-all ${
+                useTTSStore.getState().loudnessStandard === "peak"
+                  ? "bg-primary text-black font-semibold shadow-sm"
+                  : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
+              }`}
+              title="Chuẩn hóa theo đỉnh cao nhất (-1.0 dBFS Peak)"
+            >
+              Peak (-1dB)
+            </button>
+          </div>
+          <p className="text-[10.5px] text-on-surface-variant/70 leading-relaxed">
+            {useTTSStore.getState().loudnessStandard === "ebu_r128"
+              ? "Chuẩn phát thanh ITU-R BS.1770-4 (-16 LUFS, True-Peak -1.5dB) giúp âm lượng đồng đều và êm ái trên mọi thiết bị."
+              : useTTSStore.getState().loudnessStandard === "youtube"
+                ? "Tối ưu mức năng lượng to rõ hơn (-14 LUFS) phù hợp video nền YouTube, TikTok & Reels."
+                : "Chuẩn hóa theo đỉnh sóng cao nhất truyền thống (-1.0 dBFS)."}
           </p>
         </div>
       </div>

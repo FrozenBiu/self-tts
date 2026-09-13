@@ -24,12 +24,14 @@ from app.schemas.tts import (
     CleanupOrphansResponse,
     StitchRequest,
     StitchResponse,
+    StitchSegmentItem,
 )
 from model_handler import (
     generate_audio,
     create_voice_prompt,
     VoiceClonePrompt,
 )
+from audio_processor import apply_ebur128_loudnorm
 
 
 def cleanup_old_files(keep_latest: int = 200) -> None:
@@ -184,10 +186,17 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
 
     background_tasks.add_task(cleanup_old_files)
 
+    duration_val = None
+    try:
+        duration_val = round(AudioSegment.from_file(str(out_path)).duration_seconds, 2)
+    except Exception:
+        pass
+
     return TTSResponse(
         message="Tổng hợp thành công!",
         filename=filename,
         audio_url=f"http://localhost:8000/outputs/{filename}",
+        duration=duration_val,
     )
 
 
@@ -259,10 +268,16 @@ async def cleanup_orphan_files(request: CleanupOrphansRequest) -> CleanupOrphans
     )
 
 
-def _sync_stitch_audio(blocks, audio_format: str) -> tuple[str, str | None, str | None, float]:
-    """Hàm đồng bộ xử lý ghép nối audio và xuất file SRT trên worker thread."""
+def _sync_stitch_audio(
+    blocks,
+    audio_format: str,
+    crossfade_ms: int = 15,
+    loudness_standard: str = "ebu_r128",
+) -> tuple[str, str | None, str | None, float, list[dict]]:
+    """Hàm đồng bộ xử lý ghép nối audio, khử pop/click bằng micro-fade/crossfade, chuẩn hóa âm lượng EBU R128 và xuất file SRT trên worker thread."""
     combined = AudioSegment.empty()
     srt_entries: list[str] = []
+    segments: list[dict] = []
     current_time_sec = 0.0
 
     for idx, block in enumerate(blocks):
@@ -271,8 +286,37 @@ def _sync_stitch_audio(blocks, audio_format: str) -> tuple[str, str | None, str 
 
         segment_audio = AudioSegment.from_file(str(file_p))
         duration_sec = len(segment_audio) / 1000.0
-        start_sec = current_time_sec
-        end_sec = current_time_sec + duration_sec
+
+        # 1. Khử DC Offset & Zero-Crossing Impulse bằng micro fade-in/fade-out (10-20ms)
+        edge_fade_ms = max(0, min(crossfade_ms, int(len(segment_audio) * 0.15)))
+        if edge_fade_ms > 0:
+            segment_audio = segment_audio.fade_in(edge_fade_ms).fade_out(edge_fade_ms)
+
+        # 2. Ghép nối vào luồng chính (Crossfade hoặc Silent Gap)
+        if len(combined) > 0 and block.pause_after <= 0 and crossfade_ms > 0:
+            fade_overlap = min(crossfade_ms, len(combined), len(segment_audio))
+            combined = combined.append(segment_audio, crossfade=fade_overlap)
+            start_sec = max(0.0, current_time_sec - (fade_overlap / 1000.0))
+            end_sec = start_sec + duration_sec
+            current_time_sec = end_sec
+        else:
+            start_sec = current_time_sec
+            end_sec = current_time_sec + duration_sec
+            combined += segment_audio
+            current_time_sec = end_sec
+
+            if block.pause_after > 0:
+                pause_ms = int(block.pause_after * 1000)
+                combined += AudioSegment.silent(duration=pause_ms)
+                current_time_sec += block.pause_after
+
+        segments.append({
+            "index": idx,
+            "filename": safe_name,
+            "start": round(start_sec, 2),
+            "end": round(end_sec, 2),
+            "duration": round(duration_sec, 2),
+        })
 
         clean_text = block.text.strip()
         if clean_text:
@@ -280,29 +324,46 @@ def _sync_stitch_audio(blocks, audio_format: str) -> tuple[str, str | None, str 
             end_str = format_srt_time(end_sec)
             srt_entries.append(f"{len(srt_entries) + 1}\n{start_str} --> {end_str}\n{clean_text}\n")
 
-        combined += segment_audio
-        current_time_sec += duration_sec
-
-        if block.pause_after > 0:
-            pause_ms = int(block.pause_after * 1000)
-            combined += AudioSegment.silent(duration=pause_ms)
-            current_time_sec += block.pause_after
-
     file_id = uuid.uuid4().hex[:10]
     out_ext = ".mp3" if audio_format.lower() == "mp3" else ".wav"
     export_format = "mp3" if audio_format.lower() == "mp3" else "wav"
     out_filename = f"master_{file_id}{out_ext}"
     out_path = OUTPUTS_DIR / out_filename
 
-    combined = pydub_normalize(combined, headroom=1.0)
     combined = combined.set_frame_rate(44100)
 
-    combined.export(
-        str(out_path),
-        format=export_format,
-        bitrate="320k" if export_format == "mp3" else None,
-    )
-    logger.info(f"🎉 Ghép nối master audio thành công (Studio 44.1kHz 320k): {out_filename} (Thời lượng: {combined.duration_seconds:.2f}s)")
+    # 3. Chuẩn hóa âm lượng phát thanh quốc tế ITU-R BS.1770-4 / EBU R128 (-16 LUFS Podcast / -14 LUFS Web)
+    norm_applied = False
+    if loudness_standard in ("ebu_r128", "youtube"):
+        target_i = -16.0 if loudness_standard == "ebu_r128" else -14.0
+        temp_raw_path = OUTPUTS_DIR / f"temp_raw_{file_id}.wav"
+        try:
+            combined.export(str(temp_raw_path), format="wav")
+            norm_applied = apply_ebur128_loudnorm(
+                input_path=str(temp_raw_path),
+                output_path=str(out_path),
+                target_i=target_i,
+                target_tp=-1.5,
+                sample_rate=44100,
+                export_format=export_format,
+                bitrate="320k",
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Lỗi khi áp dụng EBU R128 loudnorm ({e}), dùng fallback Peak Normalization")
+        finally:
+            temp_raw_path.unlink(missing_ok=True)
+
+    if not norm_applied:
+        # Fallback Peak Normalization (-1.0 dBFS)
+        combined = pydub_normalize(combined, headroom=1.0)
+        combined.export(
+            str(out_path),
+            format=export_format,
+            bitrate="320k" if export_format == "mp3" else None,
+        )
+        logger.info(f"🎉 Ghép nối master audio thành công (Peak Normalization -1.0 dBFS, 44.1kHz 320k): {out_filename} (Thời lượng: {combined.duration_seconds:.2f}s)")
+    else:
+        logger.info(f"🎉 Ghép nối master audio thành công (Chuẩn phát thanh EBU R128 {loudness_standard}, 44.1kHz 320k): {out_filename} (Thời lượng: {combined.duration_seconds:.2f}s)")
 
     srt_filename = None
     srt_url = None
@@ -314,7 +375,7 @@ def _sync_stitch_audio(blocks, audio_format: str) -> tuple[str, str | None, str 
         srt_url = f"http://localhost:8000/outputs/{srt_filename}"
         logger.info(f"📝 Đã tạo file phụ đề SRT đồng bộ: {srt_filename}")
 
-    return out_filename, srt_filename, srt_url, round(combined.duration_seconds, 2)
+    return out_filename, srt_filename, srt_url, round(combined.duration_seconds, 2), segments
 
 
 async def stitch_audio_blocks(request: StitchRequest, background_tasks: BackgroundTasks) -> StitchResponse:
@@ -331,10 +392,12 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
             )
 
     try:
-        out_filename, srt_filename, srt_url, total_dur = await asyncio.to_thread(
+        out_filename, srt_filename, srt_url, total_dur, segments = await asyncio.to_thread(
             _sync_stitch_audio,
             request.blocks,
             request.format,
+            request.crossfade_ms,
+            request.loudness_standard,
         )
     except Exception as e:
         logger.error(f"Lỗi xuất file master audio: {e}")
@@ -349,4 +412,5 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
         srt_filename=srt_filename,
         srt_url=srt_url,
         total_duration=total_dur,
+        segments=[StitchSegmentItem(**s) for s in segments],
     )

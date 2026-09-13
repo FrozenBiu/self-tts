@@ -167,6 +167,7 @@ export function useStudioGenerate() {
           status: "ready",
           audioUrl: data.audio_url,
           filename: data.filename,
+          duration: data.duration || undefined,
         };
         saveStudioBlocks([singleBlock]);
 
@@ -242,7 +243,13 @@ export function useStudioGenerate() {
               const bData = await res.json();
               completedBlocks = completedBlocks.map((b, bIdx) =>
                 bIdx === i
-                  ? { ...b, status: "ready" as const, audioUrl: bData.audio_url, filename: bData.filename }
+                  ? {
+                      ...b,
+                      status: "ready" as const,
+                      audioUrl: bData.audio_url,
+                      filename: bData.filename,
+                      duration: bData.duration || undefined,
+                    }
                   : b,
               );
             } else {
@@ -276,6 +283,8 @@ export function useStudioGenerate() {
               })),
               format: useTTSStore.getState().audioFormat || "mp3",
               project_name: "Studio_Master",
+              crossfade_ms: pauseSettings.crossfade ?? 15,
+              loudness_standard: useTTSStore.getState().loudnessStandard || "ebu_r128",
             }),
           });
 
@@ -285,6 +294,15 @@ export function useStudioGenerate() {
             try {
               localStorage.setItem("tts_master_elapsed_time", String(elapsedTime));
             } catch {}
+
+            if (Array.isArray(stitchData.segments) && stitchData.segments.length > 0) {
+              completedBlocks = completedBlocks.map((b) => {
+                const fn = b.filename || (b.audioUrl ? b.audioUrl.split("/").pop() : null);
+                const matchedSeg = stitchData.segments.find((s: any) => s.filename === fn);
+                return matchedSeg ? { ...b, duration: matchedSeg.duration } : b;
+              });
+              saveStudioBlocks(completedBlocks);
+            }
 
             addHistory({
               text,

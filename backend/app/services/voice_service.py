@@ -10,6 +10,7 @@ from fastapi import HTTPException, UploadFile, BackgroundTasks
 
 import librosa
 import soundfile as sf
+import numpy as np
 
 from app.core.config import (
     BASE_DIR,
@@ -19,6 +20,7 @@ from app.core.config import (
     CUSTOM_VOICES_JSON,
     logger,
 )
+from app.schemas.voice import RandomVoiceRequest
 from app.services.tts_service import cleanup_old_files
 from model_handler import (
     SAMPLE_RATE,
@@ -31,7 +33,9 @@ _RANDOM_AGE = ["child", "teenager", "young adult", "middle-aged", "elderly"]
 _RANDOM_PITCH = [
     "very low pitch", "low pitch", "moderate pitch", "high pitch", "very high pitch",
 ]
-_RANDOM_STYLE = [None, None, None, "whisper"]
+_RANDOM_STYLE = [
+    None, "warm", "cheerful", "calm", "serious", "enthusiastic", "mysterious", "whisper"
+]
 
 
 async def fetch_all_voices() -> list[dict]:
@@ -50,43 +54,124 @@ async def fetch_all_voices() -> list[dict]:
 
 
 async def clone_custom_voice(
-    file: UploadFile,
+    files: list[UploadFile] | UploadFile,
     name: str,
-    transcript: str | None,
-    description: str,
-    gender: str,
-    icon: str,
+    transcript: str | None = None,
+    transcripts: list[str] | str | None = None,
+    description: str = "Giọng tự tạo",
+    gender: str = "all",
+    icon: str = "record_voice_over",
 ) -> dict:
-    if not file.filename.lower().endswith((".wav", ".mp3", ".m4a", ".webm", ".ogg")):
-        raise HTTPException(
-            status_code=400, detail="Chỉ hỗ trợ file wav, mp3, m4a, webm, ogg"
-        )
+    """
+    Clone giọng đọc từ 1 hoặc nhiều mẫu âm thanh tham chiếu (Multi-Sample Reference).
+    Ghép các mẫu âm thanh kèm khoảng lặng phân tách 250ms, chuẩn hóa biên độ
+    và trích xuất đặc trưng giọng nói toàn diện cho mô hình OmniVoice.
+    """
+    # Chuẩn hóa danh sách files (hỗ trợ cả 1 file lẻ lẫn danh sách nhiều files)
+    file_list: list[UploadFile] = files if isinstance(files, list) else [files]
+    if not file_list:
+        raise HTTPException(status_code=400, detail="Vui lòng cung cấp ít nhất 1 file âm thanh mẫu")
+
+    # Chuẩn hóa danh sách transcripts
+    transcript_list: list[str] = []
+    if transcripts:
+        if isinstance(transcripts, list):
+            transcript_list = [str(t).strip() for t in transcripts]
+        elif isinstance(transcripts, str):
+            try:
+                parsed = json.loads(transcripts)
+                if isinstance(parsed, list):
+                    transcript_list = [str(t).strip() for t in parsed]
+                else:
+                    transcript_list = [transcripts.strip()]
+            except Exception:
+                transcript_list = [transcripts.strip()]
+    elif transcript and transcript.strip():
+        transcript_list = [transcript.strip()]
 
     custom_id = f"custom_{uuid.uuid4().hex[:8]}"
-    temp_path = BASE_DIR / f"temp_{custom_id}_{file.filename}"
+    temp_paths: list[Path] = []
+    loaded_audios: list[np.ndarray] = []
 
     try:
-        with open(temp_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        for idx, f in enumerate(file_list):
+            fname = f.filename or f"sample_{idx}.wav"
+            if not fname.lower().endswith((".wav", ".mp3", ".m4a", ".webm", ".ogg")):
+                raise HTTPException(
+                    status_code=400, detail=f"File '{fname}' không đúng định dạng (.wav, .mp3, .m4a, .webm, .ogg)"
+                )
 
-        y, sr = librosa.load(temp_path, sr=SAMPLE_RATE, duration=15.0)
+            temp_path = BASE_DIR / f"temp_{custom_id}_{idx}_{fname}"
+            temp_paths.append(temp_path)
 
+            with open(temp_path, "wb") as buffer:
+                shutil.copyfileobj(f.file, buffer)
+
+            # Load audio về 24,000Hz mono
+            y, _ = librosa.load(str(temp_path), sr=SAMPLE_RATE)
+            if len(y) > 0:
+                # 1. Peak Normalize từng mẫu để cân bằng âm lượng
+                peak = np.max(np.abs(y))
+                if peak > 0:
+                    y = (y / peak) * 0.90
+
+                # 2. Áp dụng micro fade 10ms ở đầu và cuối để khử click khi ghép
+                fade_samples = min(int(SAMPLE_RATE * 0.01), len(y) // 4)
+                if fade_samples > 0:
+                    fade_in = np.linspace(0.0, 1.0, fade_samples, dtype=np.float32)
+                    fade_out = np.linspace(1.0, 0.0, fade_samples, dtype=np.float32)
+                    y[:fade_samples] *= fade_in
+                    y[-fade_samples:] *= fade_out
+
+                loaded_audios.append(y)
+
+        if not loaded_audios:
+            raise HTTPException(status_code=400, detail="Không thể đọc được dữ liệu âm thanh từ các file tải lên")
+
+        # 3. Ghép các mẫu âm thanh với khoảng lặng 250ms giữa các mẫu
+        silence_gap = np.zeros(int(SAMPLE_RATE * 0.25), dtype=np.float32)
+        combined_chunks: list[np.ndarray] = []
+        for i, chunk in enumerate(loaded_audios):
+            combined_chunks.append(chunk)
+            if i < len(loaded_audios) - 1:
+                combined_chunks.append(silence_gap)
+
+        combined_audio = np.concatenate(combined_chunks)
+
+        # 4. Giới hạn thời lượng tham chiếu tối ưu (tối đa 25.0 giây)
+        max_total_samples = int(SAMPLE_RATE * 25.0)
+        if len(combined_audio) > max_total_samples:
+            combined_audio = combined_audio[:max_total_samples]
+            logger.info(f"ℹ️ Đã tự động cắt mẫu tham chiếu tổng hợp về mức tối ưu 25.0s")
+
+        total_duration = round(len(combined_audio) / SAMPLE_RATE, 1)
+
+        # 5. Ghép nối chuỗi văn bản tương ứng
+        combined_transcript: str | None = None
+        if transcript_list:
+            clean_parts = [t.strip().rstrip(".") for t in transcript_list if t.strip()]
+            if clean_parts:
+                combined_transcript = ". ".join(clean_parts) + "."
+
+        # 6. Ghi file audio hoàn chỉnh ra đĩa
         wav_path = CUSTOM_VOICES_DIR / f"{custom_id}.wav"
-        sf.write(str(wav_path), y, sr)
+        sf.write(str(wav_path), combined_audio, SAMPLE_RATE)
 
+        # 7. Trích xuất đặc trưng VoiceClonePrompt (.pt)
         pt_path = CUSTOM_VOICES_DIR / f"{custom_id}.pt"
         has_pt = False
         try:
             prompt = create_voice_prompt(
                 ref_audio=str(wav_path),
-                ref_text=transcript if (transcript and transcript.strip()) else None,
+                ref_text=combined_transcript,
             )
             prompt.save(str(pt_path))
             has_pt = True
-            logger.info(f"✅ Đã tạo và lưu cache VoiceClonePrompt: {pt_path.name}")
+            logger.info(f"✅ Đã tạo và lưu cache VoiceClonePrompt ({len(file_list)} mẫu, {total_duration}s): {pt_path.name}")
         except Exception as pe:
             logger.warning(f"⚠️ Không thể tạo trước prompt .pt (sẽ tạo lại khi gọi tts): {pe}")
 
+        # 8. Lưu metadata vào custom_voices.json
         custom_voices = []
         if CUSTOM_VOICES_JSON.exists():
             with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
@@ -99,9 +184,11 @@ async def clone_custom_voice(
             "description": description,
             "icon": icon,
             "url": f"http://localhost:8000/presets/custom/{custom_id}.wav",
-            "prompt_text": transcript or "",
+            "prompt_text": combined_transcript or "",
             "type": "custom",
             "has_cache_pt": has_pt,
+            "samples_count": len(file_list),
+            "duration": total_duration,
         }
         custom_voices.append(new_voice)
 
@@ -109,17 +196,17 @@ async def clone_custom_voice(
             json.dump(custom_voices, f, ensure_ascii=False, indent=2)
 
         return {
-            "message": "Clone giọng đọc thành công!",
+            "message": f"Clone giọng đọc thành công từ {len(file_list)} mẫu âm thanh ({total_duration}s)!",
             "voice": new_voice,
             "pt_cached": has_pt,
         }
 
     except Exception as e:
-        logger.exception("Lỗi khi clone giọng đọc")
+        logger.exception("Lỗi khi clone giọng đọc đa mẫu")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        if temp_path.exists():
-            temp_path.unlink()
+        for p in temp_paths:
+            p.unlink(missing_ok=True)
 
 
 async def remove_custom_voice(voice_id: str) -> dict:
@@ -147,25 +234,52 @@ async def remove_custom_voice(voice_id: str) -> dict:
     raise HTTPException(status_code=404, detail="Không tìm thấy giọng đọc")
 
 
-async def generate_random_preview(background_tasks: BackgroundTasks) -> dict:
-    gender = _random.choice(_RANDOM_GENDER)
-    age = _random.choice(_RANDOM_AGE)
-    pitch = _random.choice(_RANDOM_PITCH)
-    style = _random.choice(_RANDOM_STYLE)
+async def generate_random_preview(
+    background_tasks: BackgroundTasks,
+    req: RandomVoiceRequest | None = None,
+) -> dict:
+    # 1. Xác định giới tính
+    if req and req.gender and req.gender not in ("all", "random"):
+        gender = req.gender.strip().lower()
+    else:
+        gender = _random.choice(_RANDOM_GENDER)
+
+    # 2. Xác định độ tuổi
+    if req and req.age and req.age not in ("all", "random"):
+        age = req.age.strip().lower()
+    else:
+        age = _random.choice(_RANDOM_AGE)
+
+    # 3. Xác định cao độ
+    if req and req.pitch and req.pitch not in ("all", "random"):
+        pitch = req.pitch.strip().lower()
+    else:
+        pitch = _random.choice(_RANDOM_PITCH)
+
+    # 4. Xác định phong cách / cảm xúc
+    if req and req.style and req.style not in ("all", "random", "none"):
+        style = req.style.strip().lower()
+    else:
+        style = _random.choice(_RANDOM_STYLE)
 
     parts = [gender, age, pitch]
     if style:
         parts.append(style)
     instruct_str = ", ".join(parts)
 
-    preview_text = (
-        "Xin chào, đây là giọng đọc thử nghiệm. "
-        "Chất lượng giọng này được tổng hợp bởi OmniVoice hai mươi bốn kilohertz. "
-        "Hy vọng bạn thích nó."
-    )
+    # 5. Câu văn đọc thử nghiệm
+    if req and req.preview_text and req.preview_text.strip():
+        preview_text = req.preview_text.strip()
+    else:
+        preview_text = (
+            "Xin chào, đây là giọng đọc thử nghiệm. "
+            "Chất lượng giọng này được tổng hợp bởi OmniVoice hai mươi bốn kilohertz."
+        )
 
-    seed = _random.randint(0, 99999)
-    cache_str = f"random_{instruct_str}_{seed}"
+    # 6. Hạt giống sinh âm thanh (Seed)
+    seed = req.seed if (req and req.seed is not None and req.seed >= 0) else _random.randint(0, 99999)
+
+    cache_str = f"random_{instruct_str}_{seed}_{hashlib.md5(preview_text.encode()).hexdigest()[:8]}"
     file_hash = hashlib.md5(cache_str.encode()).hexdigest()
     filename = f"random_preview_{file_hash}.mp3"
     output_path = OUTPUTS_DIR / filename
@@ -196,6 +310,11 @@ async def generate_random_preview(background_tasks: BackgroundTasks) -> dict:
         "filename": filename,
         "instruct": instruct_str,
         "seed": seed,
+        "gender": gender,
+        "age": age,
+        "pitch": pitch,
+        "style": style,
+        "preview_text": preview_text,
     }
 
 

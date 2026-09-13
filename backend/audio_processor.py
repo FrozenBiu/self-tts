@@ -221,3 +221,137 @@ def enhance_vocal_audio(
         final_sr = target_sr
 
     return processed, final_sr
+
+
+def apply_ebur128_loudnorm(
+    input_path: str,
+    output_path: str,
+    target_i: float = -16.0,
+    target_tp: float = -1.5,
+    target_lra: float = 11.0,
+    sample_rate: int = 44100,
+    export_format: str = "mp3",
+    bitrate: str = "320k",
+) -> bool:
+    """
+    Chuẩn hóa âm lượng theo tiêu chuẩn phát thanh quốc tế ITU-R BS.1770-4 / EBU R128 (-16 LUFS Podcast / -14 LUFS Web).
+    Sử dụng FFmpeg loudnorm filter với thuật toán dynamic true-peak limiter.
+    """
+    import subprocess
+    import shutil
+
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        logger.warning("⚠️ Không tìm thấy ffmpeg trong PATH, bỏ qua EBU R128 loudnorm")
+        return False
+
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", str(input_path),
+        "-af", f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}",
+        "-ar", str(sample_rate),
+    ]
+
+    if export_format.lower() == "mp3":
+        cmd.extend(["-c:a", "libmp3lame", "-b:a", bitrate])
+    else:
+        cmd.extend(["-c:a", "pcm_s16le"])
+
+    cmd.append(str(output_path))
+
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+        if res.returncode == 0:
+            logger.info(f"✨ [EBU R128] Chuẩn hóa âm lượng thành công: Target {target_i} LUFS, Max TP {target_tp} dBTP -> {output_path}")
+            return True
+        else:
+            logger.warning(f"⚠️ Lỗi FFmpeg loudnorm ({res.stderr}), sử dụng fallback")
+            return False
+    except Exception as e:
+        logger.warning(f"⚠️ Ngoại lệ khi thực thi FFmpeg loudnorm: {e}")
+        return False
+
+
+def mix_voice_with_bgm_ducking(
+    voice_path: str,
+    bgm_path: str,
+    output_path: str,
+    bgm_volume: float = 0.25,
+    ducking_depth_db: float = -14.0,
+    attack_ms: int = 250,
+    release_ms: int = 600,
+    sample_rate: int = 44100,
+    export_format: str = "mp3",
+    bitrate: str = "320k",
+) -> bool:
+    """
+    Trộn giọng nói với nhạc nền sử dụng Sidechain Auto-Ducking:
+    - Khi có tiếng người đọc: Nhạc nền tự động hạ nhỏ (ducking) mượt mà để giọng đọc nổi bật.
+    - Khi người đọc ngắt nghỉ: Nhạc nền tự động nổi to trở lại để lấp đầy khoảng lặng nghệ thuật.
+    - Tự động lặp nhạc nền nếu bài nói dài hơn bài nhạc (-stream_loop -1).
+    - Tự động fade-out đuôi nhạc nền khi kết thúc bài đọc.
+    """
+    import subprocess
+    import shutil
+
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        logger.warning("⚠️ Không tìm thấy ffmpeg, không thể thực hiện auto-ducking")
+        return False
+
+    # Tính ratio nén theo ducking_depth_db
+    ratio = max(2.5, min(8.0, abs(ducking_depth_db) / 3.0))
+
+    # Kỹ thuật Audio Mastering:
+    # 1. pan=stereo|c0=c0|c1=c0: Upmix giọng nói mono sang stereo chuẩn xác 100% biên độ gốc (tránh bị suy hao -3dB do panning law)
+    # 2. asplit=2: Phân tách luồng giọng đọc thành 2 nhánh độc lập:
+    #    - [voice_for_mix]: Đưa vào amix để ghép nhạc
+    #    - [voice_for_sc]: Đưa vào sidechaincompress làm tín hiệu điều khiển (trigger)
+    # 3. [1:a]: Chuẩn hóa nhạc nền về cùng tần số lấy mẫu và stereo, điều chỉnh âm lượng gốc
+    # 4. sidechaincompress: Nén nhạc nền đồng bộ cả 2 kênh trái/phải khi có giọng đọc
+    # 5. amix normalize=0: Ghép 2 luồng âm thanh mà KHÔNG LÀM GIẢM ÂM LƯỢNG của giọng nói gốc (giữ nguyên chuẩn EBU R128)
+    filter_complex = (
+        f"[0:a]pan=stereo|c0=c0|c1=c0,aresample={sample_rate},asplit=2[voice_for_mix][voice_for_sc];"
+        f"[1:a]aformat=sample_rates={sample_rate}:channel_layouts=stereo,volume={bgm_volume:.2f}[bgm_norm];"
+        f"[bgm_norm][voice_for_sc]sidechaincompress=threshold=0.08:ratio={ratio:.1f}:attack={attack_ms}:release={release_ms}[bgm_ducked];"
+        f"[voice_for_mix][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mixed]"
+    )
+
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", str(voice_path),
+        "-stream_loop", "-1",
+        "-i", str(bgm_path),
+        "-filter_complex", filter_complex,
+        "-map", "[mixed]",
+        "-ar", str(sample_rate),
+        "-ac", "2",
+    ]
+
+    if export_format.lower() == "mp3":
+        cmd.extend(["-c:a", "libmp3lame", "-b:a", bitrate])
+    else:
+        cmd.extend(["-c:a", "pcm_s16le"])
+
+    cmd.append(str(output_path))
+
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+        stderr_msg = res.stderr.decode("utf-8", errors="replace")
+        if res.returncode == 0:
+            logger.info(f"✨ [Auto-Ducking] Trộn nhạc nền thành công (Stereo 2-kênh): BGM Vol {bgm_volume:.0%}, Depth {ducking_depth_db}dB -> {output_path}")
+            return True
+        else:
+            logger.error(f"❌ Lỗi FFmpeg sidechaincompress: {stderr_msg}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Ngoại lệ khi thực thi Auto-Ducking: {e}")
+        return False
+
+

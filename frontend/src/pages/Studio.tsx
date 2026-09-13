@@ -14,6 +14,9 @@ import { ModelSettingsPanel } from "../components/studio/ModelSettingsPanel";
 import { SaveProjectModal } from "../components/studio/SaveProjectModal";
 import { PauseSettingsModal } from "../components/PauseSettingsModal";
 import { PronunciationModal } from "../components/PronunciationModal";
+import { NewScriptModal } from "../components/studio/NewScriptModal";
+import { BGMMixModal } from "../components/studio/BGMMixModal";
+import { toast } from "sonner";
 
 export default function Studio() {
   const {
@@ -56,6 +59,8 @@ export default function Studio() {
   const [isPauseSettingsOpen, setIsPauseSettingsOpen] = useState(false);
   const [isPronunciationModalOpen, setIsPronunciationModalOpen] =
     useState(false);
+  const [isNewScriptModalOpen, setIsNewScriptModalOpen] = useState(false);
+  const [isBgmModalOpen, setIsBgmModalOpen] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -75,6 +80,26 @@ export default function Studio() {
 
   const handleUpdateMasterAudio = () =>
     blocks.handleUpdateMasterAudio(setAudioUrl, pauseSettings.period);
+
+  const handleClearStudioSession = () => {
+    // Lưu lại snapshot toàn bộ phiên làm việc (text, master audio, phân đoạn câu) trước khi làm mới
+    blocks.pushToHistory();
+
+    setText("");
+    setAudioUrl(null);
+    blocks.saveStudioBlocks([], false);
+    blocks.handleStopStudioPlayback();
+    blocks.setHasModifiedSegments(false);
+    generator.cleanupTimer();
+    try {
+      localStorage.removeItem("tts_input_text");
+      localStorage.removeItem("tts_master_audio_url");
+      localStorage.removeItem("tts_master_elapsed_time");
+      localStorage.removeItem("tts_has_modified_segments");
+      localStorage.removeItem("tts_draft_last_saved");
+    } catch {}
+    toast.success("Đã làm mới Studio! Bạn có thể bắt đầu kịch bản mới.");
+  };
 
   return (
     <div className="flex flex-col gap-6 2k:gap-8 animate-in fade-in duration-500 max-w-[1600px] 2k:max-w-[2000px] mx-auto w-full">
@@ -138,6 +163,8 @@ export default function Studio() {
               </span>
             )}
           </button>
+
+          {/* Chỉ giữ lại các cài đặt ít dùng: Ngắt nghỉ & Cách đọc ở góc trên bên phải */}
         </div>
       </div>
 
@@ -147,26 +174,14 @@ export default function Studio() {
           <div className="glass-card rounded-2xl p-6 md:p-8 2k:p-10 flex flex-col gap-6 2k:gap-8 shadow-2xl border border-white/5 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[100px] pointer-events-none mix-blend-screen" />
 
-            {/* Mode Switcher Tabs */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-5 2k:pb-6 z-10">
-              <div>
-                <label className="font-label-caps text-xs 2k:text-sm text-on-surface-variant flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[18px] 2k:text-[20px] text-primary">
-                    tune
-                  </span>
-                  Chế độ sinh giọng
-                </label>
-                <p className="text-xs 2k:text-sm text-on-surface-variant/60 mt-0.5">
-                  Chọn giữa sao chép giọng mẫu hoặc tự thiết kế thuộc tính giọng
-                  nói với OmniVoice
-                </p>
-              </div>
-
+            {/* Action Bar: Chuyển đổi chế độ + Các nút chức năng hay dùng */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4 2k:pb-5 z-10">
+              {/* Left: Chuyển chế độ Voice Cloning / Voice Design */}
               <div className="inline-flex bg-surface-dim border border-white/10 rounded-xl p-1 2k:p-1.5 shadow-inner">
                 <button
                   type="button"
                   onClick={() => setMode("clone")}
-                  className={`px-3.5 2k:px-5 py-1.5 2k:py-2.5 rounded-lg font-label-caps text-xs 2k:text-sm flex items-center gap-1.5 2k:gap-2 transition-all duration-300 ${
+                  className={`px-3.5 2k:px-5 py-1.5 2k:py-2 rounded-lg font-label-caps text-xs 2k:text-sm flex items-center gap-1.5 2k:gap-2 transition-all duration-300 ${
                     mode === "clone"
                       ? "bg-primary text-black font-semibold shadow-md"
                       : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
@@ -180,7 +195,7 @@ export default function Studio() {
                 <button
                   type="button"
                   onClick={() => setMode("design")}
-                  className={`px-3.5 2k:px-5 py-1.5 2k:py-2.5 rounded-lg font-label-caps text-xs 2k:text-sm flex items-center gap-1.5 2k:gap-2 transition-all duration-300 ${
+                  className={`px-3.5 2k:px-5 py-1.5 2k:py-2 rounded-lg font-label-caps text-xs 2k:text-sm flex items-center gap-1.5 2k:gap-2 transition-all duration-300 ${
                     mode === "design"
                       ? "bg-primary text-black font-semibold shadow-md"
                       : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"
@@ -190,6 +205,70 @@ export default function Studio() {
                     auto_fix_high
                   </span>
                   Voice Design
+                </button>
+              </div>
+
+              {/* Right: Các nút chức năng hay dùng trong không gian làm việc */}
+              <div className="flex items-center gap-2">
+                {/* Nút Undo (Hoàn tác) */}
+                <button
+                  type="button"
+                  onClick={blocks.handleUndo}
+                  disabled={!blocks.canUndo}
+                  className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-200 text-xs font-label-caps ${
+                    blocks.canUndo
+                      ? "bg-surface-dim border-white/10 hover:border-primary/40 hover:bg-primary/5 text-on-surface-variant hover:text-on-surface cursor-pointer shadow-sm"
+                      : "bg-surface-dim/40 border-white/5 text-on-surface-variant/30 cursor-not-allowed"
+                  }`}
+                  title="Hoàn tác thao tác vừa thực hiện (Ctrl+Z)"
+                >
+                  <span className="material-symbols-outlined text-[17px] 2k:text-[19px]">
+                    undo
+                  </span>
+                  <span className="hidden sm:inline">Hoàn tác</span>
+                </button>
+
+                {/* Nút Redo (Làm lại) */}
+                <button
+                  type="button"
+                  onClick={blocks.handleRedo}
+                  disabled={!blocks.canRedo}
+                  className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-200 text-xs font-label-caps ${
+                    blocks.canRedo
+                      ? "bg-surface-dim border-white/10 hover:border-primary/40 hover:bg-primary/5 text-on-surface-variant hover:text-on-surface cursor-pointer shadow-sm"
+                      : "bg-surface-dim/40 border-white/5 text-on-surface-variant/30 cursor-not-allowed"
+                  }`}
+                  title="Làm lại thao tác vừa hoàn tác (Ctrl+Y)"
+                >
+                  <span className="material-symbols-outlined text-[17px] 2k:text-[19px]">
+                    redo
+                  </span>
+                  <span className="hidden sm:inline">Làm lại</span>
+                </button>
+
+                <div className="w-px h-5 bg-white/10 mx-0.5" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const hasData = Boolean(
+                      text.trim() || blocks.studioBlocks.length > 0 || audioUrl,
+                    );
+                    if (!hasData) {
+                      toast.info("Studio hiện đang trống và sẵn sàng cho bài mới!");
+                      return;
+                    }
+                    setIsNewScriptModalOpen(true);
+                  }}
+                  className="group flex items-center gap-1.5 px-3.5 2k:px-4 py-1.5 2k:py-2 rounded-xl
+                    bg-surface-dim border border-white/8 hover:border-rose-500/40
+                    hover:bg-rose-500/10 transition-all duration-300 shadow-sm text-on-surface-variant hover:text-rose-400 text-xs font-label-caps"
+                  title="Dọn sạch văn bản và phân đoạn hiện tại để bắt đầu bài mới"
+                >
+                  <span className="material-symbols-outlined text-[17px] 2k:text-[19px] text-on-surface-variant/70 group-hover:text-rose-400 transition-colors">
+                    note_add
+                  </span>
+                  <span>Bài mới</span>
                 </button>
               </div>
             </div>
@@ -223,6 +302,8 @@ export default function Studio() {
               isLoading={generator.isLoading}
               elapsedTime={generator.elapsedTime}
               generationProgress={generator.generationProgress}
+              onClearSession={handleClearStudioSession}
+              blocksCount={blocks.studioBlocks.length}
             />
 
             {/* Output & Blocks Section */}
@@ -231,6 +312,7 @@ export default function Studio() {
               elapsedTime={generator.elapsedTime}
               onNavigateToVideo={project.handleNavigateToVideo}
               onDownload={project.handleDownloadMaster}
+              onOpenBgmModal={() => setIsBgmModalOpen(true)}
               studioBlocks={blocks.studioBlocks}
               voices={voices}
               hasModifiedSegments={blocks.hasModifiedSegments}
@@ -254,6 +336,10 @@ export default function Studio() {
                 blocks.handleAddStudioBlock(voices, selectedVoiceId)
               }
               onRenderBlock={blocks.renderSingleStudioBlock}
+              canUndo={blocks.canUndo}
+              canRedo={blocks.canRedo}
+              onUndo={blocks.handleUndo}
+              onRedo={blocks.handleRedo}
             />
           </div>
         </div>
@@ -309,6 +395,31 @@ export default function Studio() {
       <PronunciationModal
         isOpen={isPronunciationModalOpen}
         onClose={() => setIsPronunciationModalOpen(false)}
+      />
+
+      {/* Modal Xác nhận làm mới Studio */}
+      <NewScriptModal
+        isOpen={isNewScriptModalOpen}
+        onClose={() => setIsNewScriptModalOpen(false)}
+        onConfirm={handleClearStudioSession}
+        onOpenSaveProject={() => setIsSaveProjectModalOpen(true)}
+        hasContent={Boolean(text.trim() || blocks.studioBlocks.length > 0 || audioUrl)}
+        studioBlocksCount={blocks.studioBlocks.length}
+      />
+
+      {/* Modal Lồng Nhạc Nền (BGM) & Auto-Ducking */}
+      <BGMMixModal
+        isOpen={isBgmModalOpen}
+        onClose={() => setIsBgmModalOpen(false)}
+        currentAudioUrl={audioUrl}
+        onSuccess={(newAudioUrl) => {
+          // Lưu vào lịch sử undo/redo trước khi ghi đè master audio
+          blocks.pushToHistory();
+          setAudioUrl(newAudioUrl);
+          try {
+            localStorage.setItem("tts_master_audio_url", newAudioUrl);
+          } catch {}
+        }}
       />
     </div>
   );

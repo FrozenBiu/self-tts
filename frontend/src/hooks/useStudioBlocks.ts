@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 
 import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
@@ -30,20 +30,172 @@ export function useStudioBlocks() {
   const [isUpdatingMaster, setIsUpdatingMaster] = useState(false);
   const [playingStudioBlockId, setPlayingStudioBlockId] = useState<string | null>(null);
 
+  // ── Undo / Redo State (Full Studio Session: blocks, text, master audio) ──
+  interface StudioSnapshot {
+    blocks: ScriptBlock[];
+    text: string;
+    audioUrl: string | null;
+  }
+
+  const [past, setPast] = useState<StudioSnapshot[]>([]);
+  const [future, setFuture] = useState<StudioSnapshot[]>([]);
+  const MAX_HISTORY = 30;
+  const isTypingTextRef = useRef(false);
+  const textDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const captureSnapshot = (overrideBlocks?: ScriptBlock[]): StudioSnapshot => {
+    const ttsState = useTTSStore.getState();
+    return {
+      blocks: overrideBlocks ?? studioBlocks,
+      text: ttsState.text || "",
+      audioUrl: ttsState.audioUrl || null,
+    };
+  };
+
+  const pushToHistory = (overrideBlocks?: ScriptBlock[]) => {
+    const snap = captureSnapshot(overrideBlocks);
+    setPast((prev) => [...prev, snap].slice(-MAX_HISTORY));
+    setFuture([]); // Xoá redo stack khi có thao tác mới
+  };
+
   const studioSequenceAudioRef = useRef<HTMLAudioElement | null>(null);
   const studioSequenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
-  const saveStudioBlocks = (newBlocks: ScriptBlock[]) => {
+  const saveStudioBlocks = (newBlocks: ScriptBlock[], recordHistory: boolean = false) => {
+    if (recordHistory) {
+      pushToHistory(studioBlocks);
+    }
     setStudioBlocks(newBlocks);
     localStorage.setItem("tts_studio_blocks", JSON.stringify(newBlocks));
   };
+
+  const handleUndo = () => {
+    if (past.length === 0) return;
+    const previous = past[past.length - 1];
+    const newPast = past.slice(0, past.length - 1);
+
+    const currentSnap = captureSnapshot();
+    setFuture((prev) => [currentSnap, ...prev].slice(0, MAX_HISTORY));
+    setPast(newPast);
+
+    // 1. Khôi phục danh sách phân đoạn câu
+    setStudioBlocks(previous.blocks);
+    localStorage.setItem("tts_studio_blocks", JSON.stringify(previous.blocks));
+
+    // 2. Khôi phục văn bản đầu vào (text input)
+    useTTSStore.getState().setText(previous.text);
+    localStorage.setItem("tts_input_text", previous.text);
+
+    // 3. Khôi phục Master Audio hoàn chỉnh
+    useTTSStore.getState().setAudioUrl(previous.audioUrl);
+    if (previous.audioUrl) {
+      localStorage.setItem("tts_master_audio_url", previous.audioUrl);
+    } else {
+      localStorage.removeItem("tts_master_audio_url");
+    }
+
+    updateHasModifiedSegments(true);
+    toast.info("Đã hoàn tác phiên làm việc (Undo)", { duration: 1500 });
+  };
+
+  const handleRedo = () => {
+    if (future.length === 0) return;
+    const next = future[0];
+    const newFuture = future.slice(1);
+
+    const currentSnap = captureSnapshot();
+    setPast((prev) => [...prev, currentSnap].slice(-MAX_HISTORY));
+    setFuture(newFuture);
+
+    // 1. Khôi phục danh sách phân đoạn câu
+    setStudioBlocks(next.blocks);
+    localStorage.setItem("tts_studio_blocks", JSON.stringify(next.blocks));
+
+    // 2. Khôi phục văn bản đầu vào (text input)
+    useTTSStore.getState().setText(next.text);
+    localStorage.setItem("tts_input_text", next.text);
+
+    // 3. Khôi phục Master Audio hoàn chỉnh
+    useTTSStore.getState().setAudioUrl(next.audioUrl);
+    if (next.audioUrl) {
+      localStorage.setItem("tts_master_audio_url", next.audioUrl);
+    } else {
+      localStorage.removeItem("tts_master_audio_url");
+    }
+
+    updateHasModifiedSegments(true);
+    toast.info("Đã làm lại phiên làm việc (Redo)", { duration: 1500 });
+  };
+
+  // Lắng nghe phím tắt Ctrl+Z (Undo) và Ctrl+Y / Ctrl+Shift+Z (Redo)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isEditingInput =
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          (activeEl as HTMLElement).isContentEditable);
+
+      if (isEditingInput) {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+
+      if (modKey && !e.altKey) {
+        if (e.key.toLowerCase() === "z" && !e.shiftKey) {
+          e.preventDefault();
+          handleUndo();
+        } else if ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y") {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [past, future, studioBlocks]);
 
   const initAudio = () => {
     if (!studioSequenceAudioRef.current) {
       studioSequenceAudioRef.current = new Audio();
     }
   };
+
+  // Tự động đo duration cho các block đã có audioUrl nhưng chưa lưu duration
+  useEffect(() => {
+    const missing = studioBlocks.filter(
+      (b) => b.status === "ready" && b.audioUrl && !b.duration,
+    );
+    if (missing.length === 0) return;
+
+    let isMounted = true;
+    missing.forEach((block) => {
+      const a = new Audio(block.audioUrl);
+      a.addEventListener("loadedmetadata", () => {
+        if (!isMounted || !a.duration) return;
+        setStudioBlocks((prev) => {
+          const next = prev.map((item) =>
+            item.id === block.id
+              ? { ...item, duration: Math.round(a.duration * 100) / 100 }
+              : item,
+          );
+          localStorage.setItem("tts_studio_blocks", JSON.stringify(next));
+          return next;
+        });
+      });
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const cleanup = () => {
     globalAudio.stopAll();
@@ -73,9 +225,9 @@ export function useStudioBlocks() {
     if (typeof afterIndex === "number" && afterIndex >= 0) {
       const updated = [...studioBlocks];
       updated.splice(afterIndex + 1, 0, newBlock);
-      saveStudioBlocks(updated);
+      saveStudioBlocks(updated, true);
     } else {
-      saveStudioBlocks([...studioBlocks, newBlock]);
+      saveStudioBlocks([...studioBlocks, newBlock], true);
     }
     updateHasModifiedSegments(true);
   };
@@ -89,7 +241,7 @@ export function useStudioBlocks() {
       }
     }
     const remaining = studioBlocks.filter((b) => b.id !== blockId);
-    saveStudioBlocks(remaining);
+    saveStudioBlocks(remaining, true);
     if (remaining.length === 0) {
       useTTSStore.getState().setAudioUrl(null);
       updateHasModifiedSegments(false);
@@ -103,16 +255,36 @@ export function useStudioBlocks() {
   };
 
   const handleUpdateStudioBlock = (blockId: string, updatedFields: Partial<ScriptBlock>) => {
-    const updated = studioBlocks.map((b) =>
-      b.id === blockId ? { ...b, ...updatedFields } : b,
-    );
-    saveStudioBlocks(updated);
-    if (
-      updatedFields.text !== undefined ||
+    // Nếu sửa các thuộc tính cấu hình (speed, pitch, pauseAfter, voiceId), lưu snapshot trước khi sửa
+    const isConfigChange =
       updatedFields.speed !== undefined ||
       updatedFields.pitch !== undefined ||
       updatedFields.pauseAfter !== undefined ||
-      updatedFields.voiceId !== undefined
+      updatedFields.voiceId !== undefined;
+
+    if (isConfigChange) {
+      pushToHistory(studioBlocks);
+    } else if (updatedFields.text !== undefined) {
+      // Nếu người dùng đang gõ text, debounce snapshot để không lưu từng ký tự
+      if (!isTypingTextRef.current) {
+        pushToHistory(studioBlocks);
+        isTypingTextRef.current = true;
+      }
+      if (textDebounceTimerRef.current) {
+        clearTimeout(textDebounceTimerRef.current);
+      }
+      textDebounceTimerRef.current = setTimeout(() => {
+        isTypingTextRef.current = false;
+      }, 800);
+    }
+
+    const updated = studioBlocks.map((b) =>
+      b.id === blockId ? { ...b, ...updatedFields } : b,
+    );
+    saveStudioBlocks(updated, false);
+    if (
+      updatedFields.text !== undefined ||
+      isConfigChange
     ) {
       updateHasModifiedSegments(true);
     }
@@ -125,7 +297,7 @@ export function useStudioBlocks() {
     const updated = [...studioBlocks];
     const [moved] = updated.splice(index, 1);
     updated.splice(targetIndex, 0, moved);
-    saveStudioBlocks(updated);
+    saveStudioBlocks(updated, true);
     updateHasModifiedSegments(true);
   };
 
@@ -191,7 +363,7 @@ export function useStudioBlocks() {
         status: "ready",
         audioUrl: data.audio_url,
         filename: data.filename,
-        duration: audioDuration > 0 ? audioDuration : undefined,
+        duration: data.duration || (audioDuration > 0 ? audioDuration : undefined),
       });
 
       // Xóa file cũ nếu tồn tại
@@ -237,6 +409,8 @@ export function useStudioBlocks() {
         })),
         format: useTTSStore.getState().audioFormat || "mp3",
         project_name: "Studio_Master",
+        crossfade_ms: useTTSStore.getState().pauseSettings?.crossfade ?? 15,
+        loudness_standard: useTTSStore.getState().loudnessStandard || "ebu_r128",
       };
 
       const res = await fetch(`${API_BASE_URL}/api/tts/stitch`, {
@@ -253,6 +427,15 @@ export function useStudioBlocks() {
       const data = await res.json();
       setAudioUrl(data.audio_url);
       updateHasModifiedSegments(false);
+
+      if (Array.isArray(data.segments) && data.segments.length > 0) {
+        const updated = studioBlocks.map((b) => {
+          const fn = b.filename || (b.audioUrl ? b.audioUrl.split("/").pop() : null);
+          const matchedSeg = data.segments.find((s: any) => s.filename === fn);
+          return matchedSeg ? { ...b, duration: matchedSeg.duration } : b;
+        });
+        saveStudioBlocks(updated);
+      }
       toast.success(`Đã cập nhật Audio chính thành công! (${data.total_duration}s)`, {
         id: toastId,
       });
@@ -300,6 +483,15 @@ export function useStudioBlocks() {
     setPlayingStudioBlockId(null);
   };
 
+  const handleClearStudioBlocks = () => {
+    if (studioBlocks.length > 0) {
+      pushToHistory(studioBlocks);
+    }
+    saveStudioBlocks([]);
+    updateHasModifiedSegments(false);
+    handleStopStudioPlayback();
+  };
+
   return {
     // State
     studioBlocks,
@@ -307,6 +499,8 @@ export function useStudioBlocks() {
     hasModifiedSegments,
     isUpdatingMaster,
     playingStudioBlockId,
+    canUndo: past.length > 0,
+    canRedo: future.length > 0,
     // Setters
     saveStudioBlocks,
     setIsSegmentsCollapsed,
@@ -320,6 +514,10 @@ export function useStudioBlocks() {
     handleUpdateMasterAudio,
     handlePlayStudioBlockPreview,
     handleStopStudioPlayback,
+    handleClearStudioBlocks,
+    handleUndo,
+    handleRedo,
+    pushToHistory,
     // Lifecycle
     initAudio,
     cleanup,

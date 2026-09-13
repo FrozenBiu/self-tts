@@ -55,6 +55,8 @@ export interface Voice {
   prompt_text: string;
   url: string;
   type?: "preset" | "custom";
+  samples_count?: number;
+  duration?: number;
 }
 
 export interface PauseSettings {
@@ -62,6 +64,7 @@ export interface PauseSettings {
   comma: number; // Dấu phẩy (,): mặc định 0.25s
   semicolon: number; // Dấu chấm phẩy (;): mặc định 0.30s
   newline: number; // Xuống dòng (\n): mặc định 0.60s
+  crossfade?: number; // Micro crossfade khử pop/click (ms): mặc định 15ms
 }
 
 export const DEFAULT_PAUSE_SETTINGS: PauseSettings = {
@@ -69,6 +72,7 @@ export const DEFAULT_PAUSE_SETTINGS: PauseSettings = {
   comma: 0.25,
   semicolon: 0.3,
   newline: 0.6,
+  crossfade: 15,
 };
 
 export interface PronunciationWord {
@@ -228,6 +232,8 @@ interface TTSState {
     freed_mb: number;
     message: string;
   }>;
+  loudnessStandard: "ebu_r128" | "youtube" | "peak";
+  setLoudnessStandard: (standard: "ebu_r128" | "youtube" | "peak") => void;
 }
 
 export const useTTSStore = create<TTSState>((set, get) => {
@@ -301,6 +307,20 @@ export const useTTSStore = create<TTSState>((set, get) => {
       typeof _savedConfig.enhanceAudio === "boolean"
         ? _savedConfig.enhanceAudio
         : true,
+    loudnessStandard: (() => {
+      try {
+        const saved = localStorage.getItem("tts_loudness_standard");
+        return (saved as "ebu_r128" | "youtube" | "peak") || "ebu_r128";
+      } catch {
+        return "ebu_r128";
+      }
+    })(),
+    setLoudnessStandard: (standard) => {
+      try {
+        localStorage.setItem("tts_loudness_standard", standard);
+      } catch {}
+      set({ loudnessStandard: standard });
+    },
     engine: localStorage.getItem("tts_selected_engine") || "omnivoice",
     setEngine: (engine) => {
       localStorage.setItem("tts_selected_engine", engine);
