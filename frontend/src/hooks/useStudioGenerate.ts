@@ -226,58 +226,70 @@ export function useStudioGenerate() {
         setGenerationProgress({ current: 0, total: sentences.length });
 
         let completedBlocks: ScriptBlock[] = [...newBlocks];
+        const CONCURRENCY = 2;
+        let nextIndex = 0;
+        let finishedCount = 0;
 
-        for (let i = 0; i < sentences.length; i++) {
-          setProgress({ current: i + 1, total: sentences.length });
-          setGenerationProgress({ current: i + 1, total: sentences.length });
+        const processSentenceWorker = async () => {
+          while (nextIndex < sentences.length) {
+            const i = nextIndex++;
+            try {
+              const res = await fetch(`${API_BASE_URL}/api/tts`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  text: sentences[i].text,
+                  mode,
+                  instruct: mode === "design" ? instruct : null,
+                  cfg_value,
+                  normalize: false,
+                  voice_id: mode === "clone" ? selectedVoiceId : null,
+                  seed,
+                  speed,
+                  pitch,
+                  format: useTTSStore.getState().audioFormat || "mp3",
+                  enhance_audio: enhanceAudio,
+                  engine: "omnivoice",
+                  session_id: currentSessionId,
+                }),
+              });
 
-          try {
-            const res = await fetch(`${API_BASE_URL}/api/tts`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                text: sentences[i].text,
-                mode,
-                instruct: mode === "design" ? instruct : null,
-                cfg_value,
-                normalize: false,
-                voice_id: mode === "clone" ? selectedVoiceId : null,
-                seed,
-                speed,
-                pitch,
-                format: useTTSStore.getState().audioFormat || "mp3",
-                enhance_audio: enhanceAudio,
-                engine: "omnivoice",
-                session_id: currentSessionId,
-              }),
-            });
-
-            if (res.ok) {
-              const bData = await res.json();
+              if (res.ok) {
+                const bData = await res.json();
+                completedBlocks = completedBlocks.map((b, bIdx) =>
+                  bIdx === i
+                    ? {
+                        ...b,
+                        status: "ready" as const,
+                        audioUrl: bData.audio_url,
+                        filename: bData.filename,
+                        duration: bData.duration || undefined,
+                      }
+                    : b,
+                );
+              } else {
+                completedBlocks = completedBlocks.map((b, bIdx) =>
+                  bIdx === i ? { ...b, status: "error" as const, error: "Lỗi render" } : b,
+                );
+              }
+            } catch (e: any) {
               completedBlocks = completedBlocks.map((b, bIdx) =>
-                bIdx === i
-                  ? {
-                      ...b,
-                      status: "ready" as const,
-                      audioUrl: bData.audio_url,
-                      filename: bData.filename,
-                      duration: bData.duration || undefined,
-                    }
-                  : b,
-              );
-            } else {
-              completedBlocks = completedBlocks.map((b, bIdx) =>
-                bIdx === i ? { ...b, status: "error" as const, error: "Lỗi render" } : b,
+                bIdx === i ? { ...b, status: "error" as const, error: e.message } : b,
               );
             }
-          } catch (e: any) {
-            completedBlocks = completedBlocks.map((b, bIdx) =>
-              bIdx === i ? { ...b, status: "error" as const, error: e.message } : b,
-            );
-          }
 
-          saveStudioBlocks(completedBlocks);
-        }
+            finishedCount++;
+            setProgress({ current: finishedCount, total: sentences.length });
+            setGenerationProgress({ current: finishedCount, total: sentences.length });
+            saveStudioBlocks([...completedBlocks]);
+          }
+        };
+
+        const workers = Array.from(
+          { length: Math.min(CONCURRENCY, sentences.length) },
+          () => processSentenceWorker()
+        );
+        await Promise.all(workers);
 
         const readyBlocks = completedBlocks.filter(
           (b) => b.status === "ready" && (b.filename || b.audioUrl),

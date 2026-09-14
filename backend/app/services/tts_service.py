@@ -531,6 +531,33 @@ async def cleanup_orphan_files(request: CleanupOrphansRequest) -> CleanupOrphans
 
 
 
+def _find_audio_file(filename: str, session_id: str | None = None) -> Path | None:
+    """Tìm file audio an toàn: kiểm tra session_id, thư mục outputs, và quét đệ quy các thư mục session con."""
+    safe_name = os.path.basename(filename)
+    if not safe_name:
+        return None
+
+    # 1. Kiểm tra theo session_id truyền lên
+    if session_id and session_id.strip():
+        safe_sess = os.path.basename(session_id.strip())
+        candidate = AUDIOS_DIR / safe_sess / safe_name
+        if candidate.exists():
+            return candidate
+
+    # 2. Kiểm tra trực tiếp trong OUTPUTS_DIR và AUDIOS_DIR
+    if (OUTPUTS_DIR / safe_name).exists():
+        return OUTPUTS_DIR / safe_name
+    if (AUDIOS_DIR / safe_name).exists():
+        return AUDIOS_DIR / safe_name
+
+    # 3. Tìm trong toàn bộ các session con của AUDIOS_DIR (ví dụ outputs/audios/*/<safe_name>)
+    matches = list(AUDIOS_DIR.glob(f"*/{safe_name}"))
+    if matches:
+        return max(matches, key=os.path.getmtime)
+
+    return None
+
+
 def _sync_stitch_audio(
     blocks,
     audio_format: str,
@@ -554,10 +581,18 @@ def _sync_stitch_audio(
         target_dir.mkdir(parents=True, exist_ok=True)
         url_prefix = f"http://localhost:8000/outputs/audios/{safe_sess}"
         r2_prefix = f"outputs/audios/{safe_sess}/"
+    elif blocks:
+        # Tự động suy luận thư mục session từ block đầu tiên tìm thấy nếu session_id rỗng
+        first_file = _find_audio_file(blocks[0].filename)
+        if first_file and first_file.parent.parent == AUDIOS_DIR:
+            safe_sess = first_file.parent.name
+            target_dir = first_file.parent
+            url_prefix = f"http://localhost:8000/outputs/audios/{safe_sess}"
+            r2_prefix = f"outputs/audios/{safe_sess}/"
 
     for idx, block in enumerate(blocks):
         safe_name = os.path.basename(block.filename)
-        file_p = target_dir / safe_name
+        file_p = _find_audio_file(block.filename, session_id) or (target_dir / safe_name)
         if not file_p.exists():
             file_p = OUTPUTS_DIR / safe_name
 
@@ -668,12 +703,10 @@ async def stitch_audio_blocks(request: StitchRequest, background_tasks: Backgrou
     if not request.blocks:
         raise HTTPException(status_code=400, detail="Danh sách phân đoạn rỗng")
 
-    sess_dir = (AUDIOS_DIR / os.path.basename(request.session_id.strip())) if (request.session_id and request.session_id.strip()) else None
-
     for idx, block in enumerate(request.blocks):
         safe_name = os.path.basename(block.filename)
-        found = (sess_dir / safe_name).exists() if sess_dir else False
-        if not found and not (OUTPUTS_DIR / safe_name).exists():
+        found_path = _find_audio_file(block.filename, request.session_id)
+        if not found_path:
             raise HTTPException(
                 status_code=404,
                 detail=f"Không tìm thấy file audio ở phân đoạn {idx + 1}: {safe_name}",

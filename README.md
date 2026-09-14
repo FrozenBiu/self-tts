@@ -86,6 +86,39 @@ pnpm install
 
 ---
 
+## 🌐 Tăng Tốc Bằng Cloud GPU Từ Xa (Hugging Face Spaces A100 / Google Colab T4)
+
+Nếu máy tính của bạn **không có card đồ hoạ rời (VGA)** hoặc chỉ có CPU, việc sinh âm thanh cho văn bản dài hàng nghìn từ sẽ rất lâu. Bạn có thể uỷ quyền xử lý toàn bộ thuật toán OmniVoice sang Cloud GPU miễn phí:
+
+### 🌟 Tùy chọn 1: Hugging Face Spaces (ZeroGPU A100/A10G) — Khuyên Dùng (Chạy 24/7, Không Cần Treo Tab)
+1. Tạo một Space mới trên [Hugging Face Spaces](https://huggingface.co/spaces) (chọn SDK **Gradio**, phần cứng **ZeroGPU**).
+2. Upload các file trong thư mục `hf_space/` (`app.py`, `requirements.txt`, `README.md`) lên Space.
+3. Khi Space hiển thị **Running**, copy link Direct URL (dạng `https://<tên-bạn>-<tên-space>.hf.space`).
+4. Cấu hình file `backend/.env`:
+   ```env
+   USE_REMOTE_GPU=true
+   REMOTE_GPU_URL=https://<tên-bạn>-<tên-space>.hf.space
+   ```
+
+### ☕ Tùy chọn 2: Google Colab GPU T4 (NVIDIA Tesla T4 16GB)
+1. **Mở Colab Notebook:**
+   - Mở file [`notebooks/OmniVoice_Colab_T4.ipynb`](file:///d:/Coding/VSCode/self-tts/notebooks/OmniVoice_Colab_T4.ipynb) trên [Google Colab](https://colab.research.google.com/).
+   - Vào menu `Runtime` ➔ `Change runtime type` ➔ Chọn **T4 GPU** ➔ Bấm **Save**.
+2. **Khởi chạy Worker (1-Click):**
+   - Bấm nút **Play (▶️)** ở ô code duy nhất trong notebook.
+   - Chờ ~1-2 phút, hệ thống sẽ tự động cấp một đường dẫn Cloudflare Tunnel an toàn, ví dụ:  
+     `https://random-subdomain.trycloudflare.com`
+3. **Cấu hình trên máy tính của bạn:**
+   - Mở file `backend/.env` và thiết lập:
+     ```env
+     USE_REMOTE_GPU=true
+     REMOTE_GPU_URL=https://random-subdomain.trycloudflare.com
+     ```
+
+> 💡 **Kết quả:** Máy local của bạn **không tốn 1 chút RAM nào** để tải mô hình nặng, và tốc độ sinh âm thanh trên Cloud GPU **chỉ mất 0.5 - 1.5 giây** cho mỗi đoạn thay vì 1 - 2 phút trên CPU!
+
+---
+
 ## ⚡ Khởi Chạy Nhanh 1-Click (Khuyên Dùng)
 
 Sau khi hoàn tất cài đặt lần đầu, bạn chỉ cần:

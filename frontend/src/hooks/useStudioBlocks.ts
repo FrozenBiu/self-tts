@@ -342,6 +342,7 @@ export function useStudioBlocks() {
         pronunciationWords,
       );
 
+      const savedSessionId = localStorage.getItem("tts_studio_session_id") || undefined;
       const res = await fetch(`${API_BASE_URL}/api/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -354,6 +355,7 @@ export function useStudioBlocks() {
           format: useTTSStore.getState().audioFormat || "mp3",
           enhance_audio: enhanceAudio,
           engine: "omnivoice",
+          session_id: savedSessionId,
         }),
       });
 
@@ -426,6 +428,7 @@ export function useStudioBlocks() {
     const toastId = toast.loading("Đang ghép nối và cập nhật lại Audio chính...");
 
     try {
+      const savedSessionId = localStorage.getItem("tts_studio_session_id") || undefined;
       const payload = {
         blocks: readyBlocks.map((b) => ({
           filename: b.filename || b.audioUrl!.split("/").pop()!,
@@ -434,6 +437,7 @@ export function useStudioBlocks() {
         })),
         format: useTTSStore.getState().audioFormat || "mp3",
         project_name: "Studio_Master",
+        session_id: savedSessionId,
         crossfade_ms: useTTSStore.getState().pauseSettings?.crossfade ?? 15,
         loudness_standard: useTTSStore.getState().loudnessStandard || "ebu_r128",
       };

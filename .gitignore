@@ -6,9 +6,9 @@ Thumbs.db
 .vscode/settings.json
 .idea/
 
-# ── Python Backend ───────────────────────────────
-backend/__pycache__/
-backend/*.py[cod]
+# ── Python & Environments ─────────────────────────
+__pycache__/
+*.py[cod]
 backend/venv/
 backend/.env
 backend/local_models/

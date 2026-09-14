@@ -65,6 +65,35 @@ ENABLE_EMPTY_CACHE = os.getenv("ENABLE_EMPTY_CACHE", "false").lower() in ("true"
 CUDNN_BENCHMARK = os.getenv("CUDNN_BENCHMARK", "true").lower() in ("true", "1", "yes")
 AUDIO_MP3_BACKEND = os.getenv("AUDIO_MP3_BACKEND", "auto").lower().strip()
 
+# Cấu hình Remote Cloud GPU Worker (Hugging Face Spaces A100 / Google Colab T4)
+USE_REMOTE_GPU = (
+    os.getenv("USE_REMOTE_GPU", "").lower() in ("true", "1", "yes")
+    or os.getenv("USE_HUGGINGFACE_GPU", "").lower() in ("true", "1", "yes")
+    or os.getenv("USE_COLAB_GPU", "").lower() in ("true", "1", "yes")
+)
+REMOTE_GPU_URL = (
+    os.getenv("REMOTE_GPU_URL")
+    or os.getenv("HUGGINGFACE_GPU_URL")
+    or os.getenv("COLAB_API_URL")
+    or ""
+).rstrip("/")
+
+# Tương thích ngược
+USE_COLAB_GPU = USE_REMOTE_GPU
+COLAB_API_URL = REMOTE_GPU_URL
+
+
+def _remote_url(endpoint: str) -> str:
+    """Tạo URL chính xác cho Remote Worker (Hugging Face Spaces dùng prefix /gradio_api/remote/, Colab dùng /api/remote/)."""
+    base = REMOTE_GPU_URL.rstrip("/")
+    endpoint = endpoint.strip("/")
+    if "/remote/" in base:
+        return f"{base}/{endpoint}"
+    if "hf.space" in base.lower():
+        return f"{base}/gradio_api/remote/{endpoint}"
+    return f"{base}/api/remote/{endpoint}"
+
+
 _has_warmed_up = False
 
 
@@ -72,13 +101,42 @@ def load_model() -> None:
     """
     Load OmniVoice vào VRAM / RAM.
     Gọi hàm này duy nhất một lần trong FastAPI lifespan startup.
+    Nếu bật USE_REMOTE_GPU, sẽ kiểm tra kết nối Cloud GPU và không tải model vào RAM máy local.
     """
     global _model
     if _model is not None:
         logger.info("Mô hình OmniVoice đã được tải trước đó, bỏ qua.")
         return
 
-    # Xác định thiết bị tính toán
+    # ─── Chế độ Cloud GPU Worker (Hugging Face / Colab) ───────────────────────────
+    if USE_REMOTE_GPU and REMOTE_GPU_URL:
+        target_health = _remote_url("health")
+        logger.info(f"🌐 Đang kiểm tra kết nối Cloud GPU tại: {target_health} …")
+        try:
+            # pyrefly: ignore [missing-import]
+            import httpx
+            resp = httpx.get(target_health, timeout=10.0)
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    gpu_name = data.get("gpu_name", "Cloud GPU")
+                    vram = data.get("vram_total_gb", "Auto")
+                    provider = data.get("provider", "Cloud GPU")
+                    logger.info(f"🚀 Kết nối Cloud GPU thành công! [{provider} - {gpu_name} ({vram}GB)]")
+                except Exception:
+                    logger.info("🚀 Kết nối Cloud GPU thành công! (Cloud Worker đang hoạt động)")
+                logger.info("⚡ Máy local KHÔNG cần tải mô hình vào RAM — toàn bộ tác vụ TTS sẽ gửi sang Cloud GPU.")
+                return
+            else:
+                logger.warning(f"⚠️ Kiểm tra Cloud GPU trả về mã {resp.status_code}: {resp.text}")
+        except Exception as e:
+            logger.warning(
+                f"⚠️ Chưa thể kết nối tới Cloud GPU ({e}). "
+                f"Vui lòng kiểm tra lại REMOTE_GPU_URL trong .env!"
+            )
+        return
+
+    # Xác định thiết bị tính toán cục bộ
     if OMNIVOICE_DEVICE == "cuda" and torch.cuda.is_available():
         device_map = "cuda:0"
         dtype_val = torch.float16 if OMNIVOICE_DTYPE == "float16" else torch.float32
@@ -143,11 +201,51 @@ def unload_model() -> None:
     logger.info("✅ Đã dọn dẹp bộ nhớ đệm VRAM của OmniVoice.")
 
 
+def _create_voice_prompt_remote(ref_audio: str, ref_text: str | None = None) -> VoiceClonePrompt:
+    """Gửi file audio tham chiếu sang Remote GPU (Hugging Face Spaces / Colab) để trích xuất VoiceClonePrompt."""
+    # pyrefly: ignore [missing-import]
+    import httpx
+    import tempfile
+
+    url = _remote_url("prompt")
+    logger.info(f"⚡ [Remote GPU] Đang trích xuất VoiceClonePrompt từ {Path(ref_audio).name} qua {url}...")
+
+    with open(ref_audio, "rb") as f:
+        files = {"audio_file": (Path(ref_audio).name, f, "audio/wav")}
+        data = {}
+        if ref_text and ref_text.strip():
+            data["ref_text"] = ref_text.strip()
+
+        resp = httpx.post(url, files=files, data=data, timeout=180.0)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Lỗi từ Remote GPU Worker ({resp.status_code}): {resp.text}")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pt") as tmp_pt:
+        tmp_pt.write(resp.content)
+        tmp_pt_path = tmp_pt.name
+
+    try:
+        prompt = VoiceClonePrompt.load(tmp_pt_path)
+        logger.info("✅ [Remote GPU] Đã nạp thành công VoiceClonePrompt từ Cloud!")
+        return prompt
+    finally:
+        try:
+            os.remove(tmp_pt_path)
+        except OSError:
+            pass
+
+# Alias tương thích ngược
+_create_voice_prompt_colab = _create_voice_prompt_remote
+
+
 def create_voice_prompt(ref_audio: str, ref_text: str | None = None) -> VoiceClonePrompt:
     """
     Trích xuất đặc trưng âm thanh và tạo VoiceClonePrompt.
     Nếu ref_text là None hoặc rỗng, OmniVoice sẽ tự động dùng Whisper ASR để bóc băng.
     """
+    if USE_REMOTE_GPU and REMOTE_GPU_URL:
+        return _create_voice_prompt_remote(ref_audio, ref_text)
+
     with _model_lock:
         model = get_model()
         logger.info(f"Đang tạo VoiceClonePrompt từ ref_audio='{ref_audio}', ref_text={ref_text}")
@@ -377,8 +475,7 @@ def save_audio_file(
     )
 
 
-@synchronized(_model_lock)
-def generate_audio(
+def _generate_audio_remote(
     text: str,
     output_path: Path,
     mode: str = "clone",
@@ -387,23 +484,130 @@ def generate_audio(
     ref_text: str | None = None,
     instruct: str | None = None,
     cfg_value: float = 2.0,
-    num_step: int | None = None,
+    num_step: int = 16,
     seed: int | None = 42,
     speed: float = 1.0,
     pitch: float = 0.0,
     audio_format: str = "mp3",
     enhance_audio: bool = True,
 ) -> None:
-    """
-    Gọi OmniVoice.generate() và lưu file âm thanh 24kHz đầu ra.
+    """Gửi yêu cầu sinh âm thanh sang Remote GPU (Hugging Face Spaces A100 / Colab T4)."""
+    # pyrefly: ignore [missing-import]
+    import httpx
+    import tempfile
+    import io
 
-    Các chế độ (mode):
-      - 'clone' : Voice Cloning (dùng voice_clone_prompt đã cache hoặc ref_audio).
-      - 'design': Voice Design (dùng câu lệnh mô tả instruct, tự động neo giọng giữa các chunk).
-    """
-    if num_step is None:
-        num_step = int(os.getenv("DEFAULT_NUM_STEP", str(DEFAULT_NUM_STEP)))
+    url = _remote_url("generate")
+    cleaned_full_text = clean_vietnamese_text(text)
+    logger.info(
+        f"⚡ [Remote GPU] Gửi yêu cầu sinh audio: Mode={mode} | num_step={num_step} | speed={speed} | Text: '{cleaned_full_text[:50]}…'"
+    )
 
+    data = {
+        "text": text,
+        "mode": mode,
+        "num_step": str(num_step),
+        "cfg_value": str(cfg_value),
+        "speed": str(speed),
+    }
+    if seed is not None:
+        data["seed"] = str(seed)
+    if instruct and mode == "design":
+        data["instruct"] = sanitize_instruct(instruct) or ""
+    if ref_text:
+        data["ref_text"] = clean_vietnamese_text(ref_text)
+
+    files = {}
+    tmp_pt_to_clean = None
+
+    try:
+        if mode == "clone":
+            if voice_clone_prompt is not None:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pt") as tmp_pt:
+                    voice_clone_prompt.save(tmp_pt.name)
+                    tmp_pt_to_clean = tmp_pt.name
+                files["prompt_file"] = ("prompt.pt", open(tmp_pt_to_clean, "rb"), "application/octet-stream")
+            elif ref_audio and os.path.exists(ref_audio):
+                files["ref_audio_file"] = (Path(ref_audio).name, open(ref_audio, "rb"), "audio/wav")
+
+        resp = httpx.post(url, data=data, files=files if files else None, timeout=300.0)
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"Lỗi từ Remote GPU Worker ({resp.status_code}): {resp.text}")
+
+        # Đọc dữ liệu âm thanh 24kHz từ bộ nhớ đệm WAV
+        audio_np, sr = sf.read(io.BytesIO(resp.content), dtype="float32")
+
+        # Xử lý hiệu ứng DSP: Pitch nếu có
+        if pitch != 0.0:
+            # pyrefly: ignore [missing-import]
+            import librosa
+            audio_np = librosa.effects.pitch_shift(audio_np, sr=SAMPLE_RATE, n_steps=pitch)
+
+        export_sr = SAMPLE_RATE
+        if enhance_audio:
+            try:
+                audio_np, export_sr = enhance_vocal_audio(
+                    audio=audio_np,
+                    sr=SAMPLE_RATE,
+                    target_sr=44100 if audio_format.lower() in ("mp3", "wav") else SAMPLE_RATE,
+                    enable_eq=True,
+                    enable_compression=True,
+                    enable_normalization=True,
+                )
+                logger.info(f"✨ Đã áp dụng Studio Vocal Mastering -> {export_sr}Hz cho {output_path.name}")
+            except Exception as proc_err:
+                logger.warning(f"⚠️ Lỗi khi áp dụng Audio Mastering ({proc_err}), dùng âm thanh gốc 24kHz")
+                export_sr = SAMPLE_RATE
+
+        save_audio_file(
+            output_path=output_path,
+            audio=audio_np,
+            sample_rate=export_sr,
+            audio_format=audio_format,
+        )
+
+        dur = round(len(audio_np) / export_sr, 2)
+        logger.info(
+            f"💾 Đã lưu: {output_path.name} | {dur:.2f}s | {export_sr}Hz | Format: {audio_format}"
+        )
+
+    finally:
+        for k, v in files.items():
+            try:
+                v[1].close()
+            except Exception:
+                pass
+        if tmp_pt_to_clean:
+            try:
+                os.remove(tmp_pt_to_clean)
+            except OSError:
+                pass
+# Alias tương thích ngược
+_generate_audio_colab = _generate_audio_remote
+
+
+_remote_concurrency = int(os.getenv("REMOTE_CONCURRENCY", "2"))
+_remote_semaphore = threading.Semaphore(_remote_concurrency)
+
+
+def _generate_audio_local(
+    text: str,
+    output_path: Path,
+    mode: str = "clone",
+    voice_clone_prompt: VoiceClonePrompt | None = None,
+    ref_audio: str | None = None,
+    ref_text: str | None = None,
+    instruct: str | None = None,
+    cfg_value: float = 2.0,
+    num_step: int = 16,
+    seed: int | None = 42,
+    speed: float = 1.0,
+    pitch: float = 0.0,
+    audio_format: str = "mp3",
+    enhance_audio: bool = True,
+) -> None:
+    """Sinh âm thanh cục bộ trên GPU/CPU local (cần giữ _model_lock)."""
     model = get_model()
 
     if seed is not None:
@@ -580,3 +784,69 @@ def generate_audio(
     logger.info(
         f"💾 Đã lưu: {output_path.name} | {len(audio) / export_sr:.2f}s | {export_sr}Hz | Format: {audio_format}"
     )
+
+
+def generate_audio(
+    text: str,
+    output_path: Path,
+    mode: str = "clone",
+    voice_clone_prompt: VoiceClonePrompt | None = None,
+    ref_audio: str | None = None,
+    ref_text: str | None = None,
+    instruct: str | None = None,
+    cfg_value: float = 2.0,
+    num_step: int | None = None,
+    seed: int | None = 42,
+    speed: float = 1.0,
+    pitch: float = 0.0,
+    audio_format: str = "mp3",
+    enhance_audio: bool = True,
+) -> None:
+    """
+    Gọi OmniVoice.generate() và lưu file âm thanh 24kHz đầu ra.
+
+    - Nếu bật USE_REMOTE_GPU: Chạy qua _remote_semaphore (mặc định 2 luồng song song tới Cloud GPU).
+    - Nếu chạy Local: Khóa chặt 1 luồng bằng _model_lock để tránh tràn RAM / VRAM CUDA OOM.
+    """
+    if num_step is None:
+        num_step = int(os.getenv("DEFAULT_NUM_STEP", str(DEFAULT_NUM_STEP)))
+
+    # ─── Nếu bật Remote Cloud GPU: Uỷ quyền xử lý sang Hugging Face / Colab ─
+    if USE_REMOTE_GPU and REMOTE_GPU_URL:
+        with _remote_semaphore:
+            _generate_audio_remote(
+                text=text,
+                output_path=output_path,
+                mode=mode,
+                voice_clone_prompt=voice_clone_prompt,
+                ref_audio=ref_audio,
+                ref_text=ref_text,
+                instruct=instruct,
+                cfg_value=cfg_value,
+                num_step=num_step,
+                seed=seed,
+                speed=speed,
+                pitch=pitch,
+                audio_format=audio_format,
+                enhance_audio=enhance_audio,
+            )
+        return
+
+    # ─── Chế độ Local: Khóa đồng bộ 1 luồng duy nhất để bảo vệ GPU / RAM ────
+    with _model_lock:
+        _generate_audio_local(
+            text=text,
+            output_path=output_path,
+            mode=mode,
+            voice_clone_prompt=voice_clone_prompt,
+            ref_audio=ref_audio,
+            ref_text=ref_text,
+            instruct=instruct,
+            cfg_value=cfg_value,
+            num_step=num_step,
+            seed=seed,
+            speed=speed,
+            pitch=pitch,
+            audio_format=audio_format,
+            enhance_audio=enhance_audio,
+        )
