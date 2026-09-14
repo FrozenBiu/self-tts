@@ -101,21 +101,23 @@ Nếu máy tính của bạn **không có card đồ hoạ rời (VGA)** hoặc 
    ```
 
 ### ☕ Tùy chọn 2: Google Colab GPU T4 (NVIDIA Tesla T4 16GB)
-1. **Mở Colab Notebook:**
-   - Mở file [`notebooks/OmniVoice_Colab_T4.ipynb`](file:///d:/Coding/VSCode/self-tts/notebooks/OmniVoice_Colab_T4.ipynb) trên [Google Colab](https://colab.research.google.com/).
-   - Vào menu `Runtime` ➔ `Change runtime type` ➔ Chọn **T4 GPU** ➔ Bấm **Save**.
-2. **Khởi chạy Worker (1-Click):**
-   - Bấm nút **Play (▶️)** ở ô code duy nhất trong notebook.
-   - Chờ ~1-2 phút, hệ thống sẽ tự động cấp một đường dẫn Cloudflare Tunnel an toàn, ví dụ:  
-     `https://random-subdomain.trycloudflare.com`
-3. **Cấu hình trên máy tính của bạn:**
-   - Mở file `backend/.env` và thiết lập:
-     ```env
-     USE_REMOTE_GPU=true
-     REMOTE_GPU_URL=https://random-subdomain.trycloudflare.com
-     ```
+Mở file [`notebooks/OmniVoice_Colab_T4.ipynb`](file:///d:/Coding/VSCode/self-tts/notebooks/OmniVoice_Colab_T4.ipynb) trên [Google Colab](https://colab.research.google.com/) và vào `Runtime` ➔ `Change runtime type` ➔ Chọn **T4 GPU**.
 
-> 💡 **Kết quả:** Máy local của bạn **không tốn 1 chút RAM nào** để tải mô hình nặng, và tốc độ sinh âm thanh trên Cloud GPU **chỉ mất 0.5 - 1.5 giây** cho mỗi đoạn thay vì 1 - 2 phút trên CPU!
+#### 🌟 Cách 1: Kết nối cố định vĩnh viễn với Ngrok Static Domain (Khuyên dùng - Điền 1 lần dùng mãi mãi)
+1. Đăng ký tài khoản miễn phí tại [dashboard.ngrok.com](https://dashboard.ngrok.com/) (đăng nhập bằng Google trong 10 giây).
+2. Lấy **Authtoken** tại mục [Your Authtoken](https://dashboard.ngrok.com/get-started/your-authtoken).
+3. Bấm nhận **1 Domain tĩnh miễn phí** tại mục [Cloud Edge ➔ Domains](https://dashboard.ngrok.com/cloud-edge/domains) (ví dụ: `my-colab-tts.ngrok-free.app`).
+4. Điền cố định vào `backend/.env` trên máy bạn (**chỉ làm 1 lần duy nhất**):
+   ```env
+   USE_REMOTE_GPU=true
+   REMOTE_GPU_URL=https://my-colab-tts.ngrok-free.app
+   ```
+5. Trên Google Colab: Nhập `NGROK_AUTHTOKEN` và `NGROK_STATIC_DOMAIN` vào form ô chạy rồi bấm **Play (▶️)**.
+   👉 **Từ nay về sau:** Mỗi lần mở Colab chỉ cần bấm **Play**, web tự động kết nối ngay mà **không bao giờ phải sửa file `.env` nữa!**
+
+#### 🌐 Cách 2: Kết nối ngẫu nhiên qua Cloudflare Tunnel (Không cần đăng ký)
+- Trên Colab, chọn `TUNNEL_METHOD = "cloudflare"` rồi bấm **Play (▶️)**.
+- Sau khi chạy xong, copy URL dạng `https://xxxx.trycloudflare.com` dán vào `REMOTE_GPU_URL` trong file `backend/.env`.
 
 ---
 

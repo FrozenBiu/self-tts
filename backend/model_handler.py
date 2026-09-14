@@ -94,6 +94,14 @@ def _remote_url(endpoint: str) -> str:
     return f"{base}/api/remote/{endpoint}"
 
 
+def _remote_headers() -> dict[str, str]:
+    """Headers gửi sang Remote Worker, hỗ trợ bypass trang cảnh báo miễn phí của Ngrok."""
+    return {
+        "ngrok-skip-browser-warning": "1",
+        "User-Agent": "OmniVoice/1.0",
+    }
+
+
 _has_warmed_up = False
 
 
@@ -115,7 +123,7 @@ def load_model() -> None:
         try:
             # pyrefly: ignore [missing-import]
             import httpx
-            resp = httpx.get(target_health, timeout=10.0)
+            resp = httpx.get(target_health, headers=_remote_headers(), timeout=10.0)
             if resp.status_code == 200:
                 try:
                     data = resp.json()
@@ -216,7 +224,7 @@ def _create_voice_prompt_remote(ref_audio: str, ref_text: str | None = None) -> 
         if ref_text and ref_text.strip():
             data["ref_text"] = ref_text.strip()
 
-        resp = httpx.post(url, files=files, data=data, timeout=180.0)
+        resp = httpx.post(url, files=files, data=data, headers=_remote_headers(), timeout=180.0)
         if resp.status_code != 200:
             raise RuntimeError(f"Lỗi từ Remote GPU Worker ({resp.status_code}): {resp.text}")
 
@@ -530,7 +538,7 @@ def _generate_audio_remote(
             elif ref_audio and os.path.exists(ref_audio):
                 files["ref_audio_file"] = (Path(ref_audio).name, open(ref_audio, "rb"), "audio/wav")
 
-        resp = httpx.post(url, data=data, files=files if files else None, timeout=300.0)
+        resp = httpx.post(url, data=data, files=files if files else None, headers=_remote_headers(), timeout=300.0)
 
         if resp.status_code != 200:
             raise RuntimeError(f"Lỗi từ Remote GPU Worker ({resp.status_code}): {resp.text}")
