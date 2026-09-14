@@ -42,6 +42,7 @@ from app.core.storage_r2 import (
     upload_audio_to_r2,
     delete_audio_from_r2,
     delete_session_from_r2,
+    delete_multiple_from_r2,
     cleanup_orphan_r2_files,
 )
 
@@ -326,7 +327,7 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
 
 
 
-async def delete_audio_session(session_id: str):
+async def delete_audio_session(session_id: str, background_tasks: Any | None = None):
     """
     Xóa trọn gói thư mục session trong outputs/audios/{session_id}/ và trên Cloudflare R2.
     """
@@ -345,25 +346,32 @@ async def delete_audio_session(session_id: str):
             logger.error(f"Lỗi khi xóa thư mục session {safe_session_id}: {e}")
 
     # Xóa trọn gói trên Cloudflare R2
-    deleted_r2_count = delete_session_from_r2(safe_session_id)
+    if background_tasks:
+        background_tasks.add_task(delete_session_from_r2, safe_session_id)
+        return {
+            "message": f"Đã xóa session cục bộ và lên lịch dọn dẹp R2 cho session {safe_session_id}",
+            "deleted": True,
+            "session_id": safe_session_id,
+        }
+    else:
+        deleted_r2_count = delete_session_from_r2(safe_session_id)
+        if not deleted_local and deleted_r2_count == 0:
+            return {"message": f"Session {safe_session_id} không tồn tại hoặc đã được xóa trước đó", "deleted": False}
 
-    if not deleted_local and deleted_r2_count == 0:
-        return {"message": f"Session {safe_session_id} không tồn tại hoặc đã được xóa trước đó", "deleted": False}
-
-    return {
-        "message": f"Đã xóa trọn gói session {safe_session_id} ({deleted_r2_count} files R2)",
-        "deleted": True,
-        "session_id": safe_session_id,
-    }
+        return {
+            "message": f"Đã xóa trọn gói session {safe_session_id} ({deleted_r2_count} files R2)",
+            "deleted": True,
+            "session_id": safe_session_id,
+        }
 
 
-async def delete_single_audio(filename: str):
+async def delete_single_audio(filename: str, background_tasks: Any | None = None):
     # Nếu filename chính là một session ID hoặc đường dẫn thư mục session
     clean_name = filename.strip().replace("\\", "/").rstrip("/")
     if clean_name.startswith("audios/") or (AUDIOS_DIR / os.path.basename(clean_name)).is_dir():
         sess_name = os.path.basename(clean_name)
         if (AUDIOS_DIR / sess_name).is_dir():
-            return await delete_audio_session(sess_name)
+            return await delete_audio_session(sess_name, background_tasks=background_tasks)
 
     safe_filename = os.path.basename(filename)
     # Tìm kiếm cả ở root OUTPUTS_DIR lẫn các thư mục con trong AUDIOS_DIR
@@ -396,31 +404,62 @@ async def delete_single_audio(filename: str):
             logger.warning(f"Không thể xóa file SRT {srt_candidate.name}: {e}")
 
     # Xóa trên Cloudflare R2 bucket nếu có cấu hình
-    deleted_r2 = delete_audio_from_r2(safe_filename)
+    if background_tasks:
+        background_tasks.add_task(delete_audio_from_r2, safe_filename)
+        return {"message": f"Đã xóa thành công file {safe_filename}", "deleted": True}
+    else:
+        deleted_r2 = delete_audio_from_r2(safe_filename)
+        if not deleted_local and not deleted_r2:
+            return {"message": "File không tồn tại hoặc đã được xóa trước đó", "deleted": False}
+        return {"message": f"Đã xóa thành công file {safe_filename}", "deleted": True}
 
-    if not deleted_local and not deleted_r2:
-        return {"message": "File không tồn tại hoặc đã được xóa trước đó", "deleted": False}
 
-    return {"message": f"Đã xóa thành công file {safe_filename}", "deleted": True}
-
-
-async def delete_multiple_audios(filenames: list[str]):
-    """Xóa danh sách nhiều file âm thanh (kèm file srt và trên R2)"""
+async def delete_multiple_audios(filenames: list[str], background_tasks: Any | None = None):
+    """Xóa danh sách nhiều file âm thanh nhanh chóng cục bộ và xóa hàng loạt trên R2"""
+    unique_filenames = list(dict.fromkeys([f for f in filenames if f]))
     deleted_count = 0
-    unique_filenames = list(dict.fromkeys(filenames))
+    r2_keys_to_delete = []
+
     for fn in unique_filenames:
-        if not fn:
+        clean_name = fn.strip().replace("\\", "/").rstrip("/")
+        safe_name = os.path.basename(clean_name)
+        if not safe_name:
             continue
-        try:
-            res = await delete_single_audio(fn)
-            if res.get("deleted"):
+        r2_keys_to_delete.append(safe_name)
+
+        # Xóa cục bộ
+        file_path = OUTPUTS_DIR / safe_name
+        if not file_path.exists():
+            for s_dir in AUDIOS_DIR.iterdir():
+                if s_dir.is_dir() and (s_dir / safe_name).exists():
+                    file_path = s_dir / safe_name
+                    break
+
+        if file_path.exists() and file_path.is_file():
+            try:
+                file_path.unlink(missing_ok=True)
                 deleted_count += 1
-        except Exception as e:
-            logger.warning(f"Không thể xóa file {fn}: {e}")
+            except Exception as e:
+                logger.warning(f"Không thể xóa file {safe_name}: {e}")
+
+            # Xóa file phụ đề srt kèm theo
+            srt_candidate = file_path.with_suffix(".srt")
+            if srt_candidate.exists() and srt_candidate.is_file():
+                try:
+                    srt_candidate.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    # Xóa trên R2 bằng batch (hàng loạt trong 1 request)
+    if r2_keys_to_delete:
+        if background_tasks:
+            background_tasks.add_task(delete_multiple_from_r2, r2_keys_to_delete)
+        else:
+            delete_multiple_from_r2(r2_keys_to_delete)
 
     return {
-        "message": f"Đã xóa thành công {deleted_count}/{len(unique_filenames)} file",
-        "deleted_count": deleted_count,
+        "message": f"Đã xử lý xóa {len(unique_filenames)} file (xóa cục bộ & dọn dẹp R2 tức thì)",
+        "deleted_count": len(unique_filenames),
         "total": len(unique_filenames),
     }
 
