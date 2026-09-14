@@ -1,4 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
+import { FolderPlus, Plus, X } from "lucide-react";
+import { toast } from "sonner";
 import { useTTSStore, type Project } from "../../store/useTTSStore";
 
 interface ModelSettingsPanelProps {
@@ -40,6 +42,36 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
   onSaveConfig,
   configSaved,
 }) => {
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectDesc, setNewProjectDesc] = useState("");
+  const addProject = useTTSStore((state) => state.addProject);
+
+  const handleSelectChange = (val: string) => {
+    if (val === "__NEW_PROJECT__") {
+      setIsCreateModalOpen(true);
+      return;
+    }
+    setSelectedProjectId(val);
+  };
+
+  const handleCreateProject = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newProjectName.trim();
+    if (!trimmed) {
+      toast.error("Vui lòng nhập tên dự án mới");
+      return;
+    }
+
+    const created = addProject(trimmed, newProjectDesc.trim());
+    setSelectedProjectId(created.id);
+    toast.success(`Đã tạo dự án "${created.name}" thành công!`);
+
+    setNewProjectName("");
+    setNewProjectDesc("");
+    setIsCreateModalOpen(false);
+  };
+
   return (
     <div className="glass-card rounded-2xl p-6 2k:p-8 shadow-2xl border border-white/5 flex flex-col gap-8 2k:gap-9 relative overflow-hidden">
       <div className="absolute -top-12 -right-12 w-32 h-32 bg-primary/5 rounded-full blur-[40px] pointer-events-none"></div>
@@ -75,21 +107,36 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
       <div className="flex flex-col gap-7 2k:gap-8">
         {/* Project Selection */}
         <div className="flex flex-col gap-3 2k:gap-3.5">
-          <label className="font-label-caps text-sm 2k:text-base text-on-surface-variant flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px] 2k:text-[18px]">
-              workspaces
-            </span>
-            Lưu vào dự án
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="font-label-caps text-sm 2k:text-base text-on-surface-variant flex items-center gap-2">
+              <span className="material-symbols-outlined text-[16px] 2k:text-[18px]">
+                workspaces
+              </span>
+              Lưu vào dự án
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsCreateModalOpen(true)}
+              className="text-[11px] 2k:text-xs text-primary hover:text-primary/80 flex items-center gap-1 font-label-caps transition-colors hover:underline cursor-pointer"
+              title="Tạo nhanh dự án mới"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Tạo dự án mới
+            </button>
+          </div>
+
           <select
             value={selectedProjectId}
-            onChange={(e) => setSelectedProjectId(e.target.value)}
+            onChange={(e) => handleSelectChange(e.target.value)}
             className="bg-surface-dim border border-white/5 rounded-lg px-4 py-2.5 2k:py-3 text-sm 2k:text-base text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all font-body-md w-full cursor-pointer"
           >
-            <option value="">-- Thư viện chung --</option>
-            {projects.map((p, index) => (
-              <option key={index} value={p.id}>
-                {p.name}
+            <option value="__NEW_PROJECT__" className="text-primary font-medium bg-[#1e1e1e]">
+              ✨ + Tạo dự án mới...
+            </option>
+            <option value="" className="bg-[#1e1e1e]">-- Thư viện chung --</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id} className="bg-[#1e1e1e]">
+                📁 {p.name}
               </option>
             ))}
           </select>
@@ -339,6 +386,93 @@ export const ModelSettingsPanel: React.FC<ModelSettingsPanelProps> = ({
           )}
         </button>
       </div>
+
+      {/* Modal Tạo dự án mới nhanh */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div
+            className="glass-card rounded-2xl max-w-md w-full p-6 border border-white/10 shadow-2xl flex flex-col gap-5 relative animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                  <FolderPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-label-caps text-sm 2k:text-base text-on-surface font-semibold">
+                    Tạo dự án mới
+                  </h3>
+                  <p className="text-[11px] 2k:text-xs text-on-surface-variant/70">
+                    Khởi tạo nhanh dự án để quản lý các đoạn thoại & audio
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCreateModalOpen(false);
+                  setNewProjectName("");
+                  setNewProjectDesc("");
+                }}
+                className="p-1.5 rounded-lg hover:bg-white/10 text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateProject} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-label-caps text-on-surface-variant flex items-center gap-1">
+                  Tên dự án <span className="text-primary">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="Ví dụ: Báo cáo khảo sát, Video giới thiệu..."
+                  className="w-full bg-surface-dim border border-white/10 rounded-xl px-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all font-body-md"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-label-caps text-on-surface-variant">
+                  Mô tả / Ghi chú <span className="text-[10px] text-on-surface-variant/60">(Tùy chọn)</span>
+                </label>
+                <textarea
+                  value={newProjectDesc}
+                  onChange={(e) => setNewProjectDesc(e.target.value)}
+                  placeholder="Ghi chú ngắn về mục tiêu hoặc đối tượng..."
+                  rows={2}
+                  className="w-full bg-surface-dim border border-white/10 rounded-xl px-4 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all font-body-md resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-white/5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreateModalOpen(false);
+                    setNewProjectName("");
+                    setNewProjectDesc("");
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-label-caps text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-primary text-on-primary text-xs font-label-caps font-semibold shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  Tạo dự án
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

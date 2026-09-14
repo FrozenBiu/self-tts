@@ -47,6 +47,7 @@ export default function ProjectDetail() {
 
   // Trạng thái Render All
   const [isRenderingAll, setIsRenderingAll] = useState(false);
+  const [isStitching, setIsStitching] = useState(false);
   const [renderProgress, setRenderProgress] = useState<{
     current: number;
     total: number;
@@ -449,8 +450,6 @@ export default function ProjectDetail() {
   };
 
   // 11. Ghép nối và Xuất Master (Stitching Engine)
-  const [isStitching, setIsStitching] = useState(false);
-
   const handleStitchMaster = async () => {
     const readyBlocks = blocks.filter((b) => b.status === "ready" && b.audioUrl && b.filename);
     if (readyBlocks.length === 0) {
