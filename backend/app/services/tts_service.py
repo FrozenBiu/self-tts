@@ -8,6 +8,7 @@ import unicodedata
 import asyncio
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Optional
 from fastapi import HTTPException, BackgroundTasks
 from pydub import AudioSegment
 from pydub.effects import normalize as pydub_normalize
@@ -327,7 +328,7 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
 
 
 
-async def delete_audio_session(session_id: str, background_tasks: Any | None = None):
+async def delete_audio_session(session_id: str, background_tasks: BackgroundTasks | None = None):
     """
     Xóa trọn gói thư mục session trong outputs/audios/{session_id}/ và trên Cloudflare R2.
     """
@@ -365,7 +366,7 @@ async def delete_audio_session(session_id: str, background_tasks: Any | None = N
         }
 
 
-async def delete_single_audio(filename: str, background_tasks: Any | None = None):
+async def delete_single_audio(filename: str, background_tasks: BackgroundTasks | None = None):
     # Nếu filename chính là một session ID hoặc đường dẫn thư mục session
     clean_name = filename.strip().replace("\\", "/").rstrip("/")
     if clean_name.startswith("audios/") or (AUDIOS_DIR / os.path.basename(clean_name)).is_dir():
@@ -414,7 +415,7 @@ async def delete_single_audio(filename: str, background_tasks: Any | None = None
         return {"message": f"Đã xóa thành công file {safe_filename}", "deleted": True}
 
 
-async def delete_multiple_audios(filenames: list[str], background_tasks: Any | None = None):
+async def delete_multiple_audios(filenames: list[str], background_tasks: BackgroundTasks | None = None):
     """Xóa danh sách nhiều file âm thanh nhanh chóng cục bộ và xóa hàng loạt trên R2"""
     unique_filenames = list(dict.fromkeys([f for f in filenames if f]))
     deleted_count = 0
