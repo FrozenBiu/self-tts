@@ -27,6 +27,41 @@ Add-Type -TypeDefinition $cSource -ErrorAction SilentlyContinue
 $projectDir = (Get-Item $PSScriptRoot).Parent.FullName
 $iconPath = Join-Path $projectDir "assets\app.ico"
 
+# 0. Kiểm tra cấu hình Remote GPU trong backend/.env
+$envFile = Join-Path $projectDir "backend\.env"
+if (Test-Path $envFile) {
+    $useRemote = $false
+    $remoteUrl = ""
+    $colabUrl = ""
+
+    Get-Content $envFile -Encoding UTF8 | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith("#")) {
+            $parts = $line -split "=", 2
+            if ($parts.Length -eq 2) {
+                $k = $parts[0].Trim()
+                $v = $parts[1].Trim().Trim('"').Trim("'")
+                if ($k -eq "USE_REMOTE_GPU") { $useRemote = ($v.ToLower() -eq "true") }
+                if ($k -eq "REMOTE_GPU_URL") { $remoteUrl = $v.ToLower() }
+                if ($k -eq "COLAB_NOTEBOOK_URL" -and $v) { $colabUrl = $v }
+            }
+        }
+    }
+
+    if (-not $colabUrl) {
+        $colabUrl = "https://colab.research.google.com/github/FrozenBiu/self-tts/blob/main/notebooks/OmniVoice_Colab_T4.ipynb"
+    }
+
+    # Nếu USE_REMOTE_GPU=true và REMOTE_GPU_URL có dạng ngrok-free.dev (không trỏ đến Hugging Face)
+    if ($useRemote -and ($remoteUrl -like "*ngrok-free.dev*" -or $remoteUrl -like "*ngrok-free.app*") -and ($remoteUrl -notlike "*hf.space*") -and ($remoteUrl -notlike "*huggingface*")) {
+        Write-Host "⚡ Phat hien Remote GPU dang dung Ngrok ($remoteUrl)." -ForegroundColor Yellow
+        Write-Host "👉 Tu dong mo Google Colab de ban bam khoi dong GPU..." -ForegroundColor Cyan
+        Start-Process $colabUrl
+    } elseif ($useRemote -and ($remoteUrl -like "*hf.space*" -or $remoteUrl -like "*huggingface*")) {
+        Write-Host "⚡ Remote GPU dang tro den Hugging Face ($remoteUrl). Khoi dong Backend & Frontend binh thuong!" -ForegroundColor Green
+    }
+}
+
 # 1. Tìm Handle của cửa sổ Terminal
 function Get-TerminalHWnd {
     $proc = Get-Process | Where-Object { $_.MainWindowTitle -like '*OmniVoice Launcher*' } | Select-Object -First 1
@@ -173,14 +208,14 @@ $notifyIcon.ContextMenuStrip = $contextMenu
 
 # 4. Timer kiểm tra trạng thái
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 350
+$timer.Interval = 1000
 
 $script:browserOpened = $false
 
 $timer.add_Tick({
     if (-not $script:browserOpened) {
         try {
-            $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 1 -ErrorAction Stop
+            $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 1 -ErrorAction Stop
             if ($r.status -eq 'ok' -and $r.model_loaded -eq $true) {
                 Write-Host "AI Model da san sang! Dang mo trinh duyet..." -ForegroundColor Green
                 Start-Process "http://localhost:5173"

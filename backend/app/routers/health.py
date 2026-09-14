@@ -14,10 +14,16 @@ router = APIRouter(tags=["System"])
     response_model=HealthResponse,
     summary="Kiểm tra trạng thái máy chủ và mô hình",
 )
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    summary="Kiểm tra trạng thái máy chủ và mô hình (hỗ trợ Tray Manager)",
+)
 async def health_check():
-    """Kiểm tra server đang hoạt động và OmniVoice đã nạp vào VRAM chưa."""
+    """Kiểm tra server đang hoạt động và OmniVoice đã sẵn sàng (local hoặc Remote GPU)."""
     import model_handler
-    is_loaded = getattr(model_handler, "_model", None) is not None
+    is_remote = getattr(model_handler, "USE_REMOTE_GPU", False)
+    is_loaded = getattr(model_handler, "_model", None) is not None or is_remote
     return HealthResponse(
         status="ok",
         model_loaded=is_loaded,

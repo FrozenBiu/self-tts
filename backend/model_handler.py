@@ -54,15 +54,17 @@ def synchronized(lock: threading.Lock):
 # Chuẩn sample rate của OmniVoice là 24,000 Hz
 SAMPLE_RATE = 24_000
 
-# Đọc cấu hình từ .env
-OMNIVOICE_DEVICE = os.getenv("OMNIVOICE_DEVICE", "cuda").lower()
-OMNIVOICE_DTYPE = os.getenv("OMNIVOICE_DTYPE", "float16").lower()
-OMNIVOICE_MODEL_ID = os.getenv("OMNIVOICE_MODEL_ID", "k2-fsa/OmniVoice")
-DEFAULT_NUM_STEP = int(os.getenv("DEFAULT_NUM_STEP", "10"))
-MAX_CHUNK_CHARS = int(os.getenv("MAX_CHUNK_CHARS", "450"))
-ENABLE_WARMUP_ONCE = os.getenv("ENABLE_WARMUP_ONCE", "false").lower() in ("true", "1", "yes")
-ENABLE_EMPTY_CACHE = os.getenv("ENABLE_EMPTY_CACHE", "false").lower() in ("true", "1", "yes")
-CUDNN_BENCHMARK = os.getenv("CUDNN_BENCHMARK", "true").lower() in ("true", "1", "yes")
+# ─── Cấu hình mặc định tối ưu cho OmniVoice (k2-fsa) ──────────────────────────
+OMNIVOICE_DEVICE = "cuda"
+OMNIVOICE_DTYPE = "float16"
+OMNIVOICE_MODEL_ID = "k2-fsa/OmniVoice"
+MAX_CHUNK_CHARS = 450
+TOKEN_PADDING_FACTOR = 1.0
+ENABLE_WARMUP_ONCE = True
+ENABLE_EMPTY_CACHE = False
+CUDNN_BENCHMARK = True
+
+DEFAULT_NUM_STEP = int(os.getenv("DEFAULT_NUM_STEP", "32"))
 AUDIO_MP3_BACKEND = os.getenv("AUDIO_MP3_BACKEND", "auto").lower().strip()
 
 # Cấu hình Remote Cloud GPU Worker (Hugging Face Spaces A100 / Google Colab T4)
@@ -168,7 +170,7 @@ def load_model() -> None:
     # Cấu hình hệ số đệm độ dài token (mặc định 1.0 = chuẩn gốc của OmniVoice)
     # Tuyệt đối không tự ý nhân > 1.0 (như 1.20) vì sẽ làm dư thừa token diffusion,
     # khiến mô hình bị vấp, lặp từ, ậm ừ hoặc kéo dài âm vô lý ở cuối câu.
-    token_padding_factor = float(os.getenv("TOKEN_PADDING_FACTOR", "1.0"))
+    token_padding_factor = TOKEN_PADDING_FACTOR
     if token_padding_factor != 1.0:
         orig_est = _model._estimate_target_tokens
 

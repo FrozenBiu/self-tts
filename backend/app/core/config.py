@@ -39,10 +39,21 @@ R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
 R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "").strip()
 R2_PUBLIC_URL = os.getenv("R2_PUBLIC_URL", "").strip().rstrip("/")
 
+import sys
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Logging cấu hình chung
+_log_handler = logging.StreamHandler(sys.stdout)
+_log_handler.setFormatter(
+    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s — %(message)s", datefmt="%H:%M:%S")
+)
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%H:%M:%S",
+    handlers=[_log_handler],
 )
 logger = logging.getLogger("omnivoice")

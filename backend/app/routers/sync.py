@@ -1,5 +1,5 @@
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from app.core.database import get_database, is_cloud_mode
 from app.core.storage_r2 import (
@@ -195,19 +195,28 @@ async def get_cloud_pronunciation():
         return []
 
 
-@router.post("/pronunciation", summary="Đồng bộ toàn bộ từ điển phát âm lên MongoDB Atlas")
-async def save_cloud_pronunciation(words: List[PronunciationSyncItem]):
+@router.post("/pronunciation", summary="Đồng bộ từ điển phát âm lên MongoDB Atlas")
+async def save_cloud_pronunciation(payload: Union[List[PronunciationSyncItem], PronunciationSyncItem]):
     db = get_database()
     if db is None:
         return {"status": "skipped"}
 
     try:
-        # Xóa toàn bộ và cập nhật lại bộ mới
-        await db["pronunciation_words"].delete_many({})
-        if words:
-            docs = [w.model_dump() for w in words]
-            await db["pronunciation_words"].insert_many(docs)
-        return {"status": "success", "count": len(words)}
+        if isinstance(payload, list):
+            # Cập nhật toàn bộ danh sách
+            await db["pronunciation_words"].delete_many({})
+            if payload:
+                docs = [w.model_dump() for w in payload]
+                await db["pronunciation_words"].insert_many(docs)
+            return {"status": "success", "count": len(payload)}
+        else:
+            # Cập nhật hoặc thêm 1 từ đơn lẻ
+            await db["pronunciation_words"].update_one(
+                {"id": payload.id},
+                {"$set": payload.model_dump()},
+                upsert=True,
+            )
+            return {"status": "success", "count": 1}
     except Exception as e:
         logger.error(f"Lỗi lưu từ điển lên MongoDB: {e}")
         return {"status": "error"}
