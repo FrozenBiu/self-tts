@@ -1,11 +1,12 @@
 import time
 from typing import List, Dict, Any
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from app.core.database import get_database, is_cloud_mode
 from app.core.storage_r2 import (
     is_r2_configured,
     delete_audio_from_r2,
     delete_session_from_r2,
+    delete_multiple_from_r2,
 )
 
 from app.schemas.sync import (
@@ -76,7 +77,7 @@ async def save_cloud_project(project: ProjectSyncItem):
 
 
 @router.delete("/projects/{project_id}", summary="Xóa dự án trên MongoDB Atlas và Cloudflare R2")
-async def delete_cloud_project(project_id: str):
+async def delete_cloud_project(project_id: str, background_tasks: BackgroundTasks):
     db = get_database()
     if db is None:
         return {"status": "skipped"}
@@ -85,17 +86,22 @@ async def delete_cloud_project(project_id: str):
         # Tìm thông tin project để dọn dẹp file audio trên R2
         proj = await db["projects"].find_one({"id": project_id})
         if proj:
-            # Xóa audio các blocks
+            r2_keys = []
+            # Gom audio các blocks
             for b in proj.get("blocks", []):
                 fn = b.get("filename") or (b.get("audioUrl", "").split("/")[-1] if b.get("audioUrl") else None)
                 if fn:
-                    delete_audio_from_r2(fn)
-            # Xóa master audio và srt
+                    r2_keys.append(fn)
+            # Gom master audio và srt
             m_fn = proj.get("masterFilename") or (proj.get("masterAudioUrl", "").split("/")[-1] if proj.get("masterAudioUrl") else None)
             if m_fn:
-                delete_audio_from_r2(m_fn)
+                r2_keys.append(m_fn)
             if proj.get("masterSrtUrl"):
-                delete_audio_from_r2(proj["masterSrtUrl"].split("/")[-1])
+                r2_keys.append(proj["masterSrtUrl"].split("/")[-1])
+
+            # Thực hiện xóa hàng loạt trên R2 ở BackgroundTask (không block HTTP request)
+            if r2_keys:
+                background_tasks.add_task(delete_multiple_from_r2, r2_keys)
 
         res = await db["projects"].delete_one({"id": project_id})
         return {"status": "success", "deleted_count": res.deleted_count}
@@ -137,7 +143,7 @@ async def save_cloud_history(item: HistorySyncItem):
 
 
 @router.delete("/history/{history_id}", summary="Xóa bản ghi lịch sử trên MongoDB Atlas và Cloudflare R2")
-async def delete_cloud_history(history_id: str):
+async def delete_cloud_history(history_id: str, background_tasks: BackgroundTasks):
     db = get_database()
     if db is None:
         return {"status": "skipped"}
@@ -145,16 +151,24 @@ async def delete_cloud_history(history_id: str):
     try:
         doc = await db["history"].find_one({"id": history_id})
         if doc:
-            if doc.get("sessionId"):
-                delete_session_from_r2(doc["sessionId"])
-
+            sess_id = doc.get("sessionId")
+            r2_keys = []
             if doc.get("url"):
                 fn = doc["url"].split("/")[-1]
                 if fn:
-                    delete_audio_from_r2(fn)
+                    r2_keys.append(fn)
             for b_fn in doc.get("blockFilenames", []) or []:
                 if b_fn:
-                    delete_audio_from_r2(b_fn)
+                    r2_keys.append(b_fn)
+
+            def _cleanup_history_r2(session_id: str | None, keys: list[str]):
+                if session_id:
+                    delete_session_from_r2(session_id)
+                if keys:
+                    delete_multiple_from_r2(keys)
+
+            if sess_id or r2_keys:
+                background_tasks.add_task(_cleanup_history_r2, sess_id, r2_keys)
 
         await db["history"].delete_one({"id": history_id})
         return {"status": "success"}
