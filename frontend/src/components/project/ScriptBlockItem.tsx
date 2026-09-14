@@ -21,6 +21,7 @@ interface ScriptBlockItemProps {
   index: number;
   total: number;
   voices: Voice[];
+  isPlaying?: boolean;
   isHighlighted?: boolean;
   onSeekToThisBlock?: () => void;
   onPlay: () => void;
