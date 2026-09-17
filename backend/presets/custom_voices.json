@@ -36,5 +36,31 @@
     "prompt_text": "Chúng ta đang sống trong thời đại của trí tuệ nhân tạo. Mọi lĩnh vực từ giáo dục, y tế đến sáng tạo nghệ thuật đều đang thay đổi nhanh chóng.",
     "url": "http://localhost:8000/presets/custom/custom_3f916630.wav",
     "has_prompt_pt": true
+  },
+  {
+    "id": "custom_37dba87e",
+    "name": "Youtube",
+    "gender": "female",
+    "description": "Kể truyện",
+    "icon": "record_voice_over",
+    "url": "http://localhost:8000/presets/custom/custom_37dba87e.wav",
+    "prompt_text": "",
+    "type": "custom",
+    "has_cache_pt": true,
+    "samples_count": 2,
+    "duration": 20.1
+  },
+  {
+    "id": "custom_3990395a",
+    "name": "Mạnh Dũng",
+    "gender": "male",
+    "description": "Giọng thông tin/giáo dục",
+    "icon": "record_voice_over",
+    "url": "http://localhost:8000/presets/custom/custom_3990395a.wav",
+    "prompt_text": "",
+    "type": "custom",
+    "has_cache_pt": true,
+    "samples_count": 1,
+    "duration": 4.5
   }
 ]

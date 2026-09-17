@@ -28,6 +28,8 @@ librosa>=0.10.2
 pydub>=0.25.1
 scipy>=1.13.0
 numpy>=1.26.0
+demucs>=4.0.1
+noisereduce>=3.0.0
 
 # --- 4. Auto Captioning & Speech-to-Text ---
 faster-whisper>=1.0.0

@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
+
 import { SyncBadge } from "@/components/sync/SyncBadge";
 import { useTTSStore } from "@/store/useTTSStore";
+import { CustomTitleBar } from "@/components/common/CustomTitleBar";
+import { AudioExportSuccessModal } from "@/components/common/AudioExportSuccessModal";
 
 
 const NAV_ITEMS = [
@@ -28,6 +31,8 @@ export function MainLayout() {
     return localStorage.getItem("sidebar_collapsed") === "true";
   });
 
+  const isElectron = typeof window !== "undefined" && Boolean(window.electronAPI?.isElectron);
+
   const toggleSidebar = () => {
     setIsCollapsed((prev) => {
       const next = !prev;
@@ -37,14 +42,20 @@ export function MainLayout() {
   };
 
   return (
-    <div className="text-on-surface font-body-md min-h-screen flex flex-col overflow-x-hidden">
+    <div className="text-on-surface font-body-md h-screen flex flex-col overflow-hidden relative">
+      {/* Thanh điều khiển TitleBar tùy biến chuẩn Desktop App */}
+      <CustomTitleBar />
+
+
       {/* Side Navigation (Phong cách Gemini, mượt mà, padding đồng nhất 100%) */}
       <nav
         className={cn(
-          "hidden md:flex fixed left-0 top-0 h-full bg-surface/80 backdrop-blur-2xl border-r border-white/10 flex-col py-5 px-3.5 z-40 transition-all duration-300 ease-in-out select-none",
+          "hidden md:flex fixed left-0 bg-surface/80 backdrop-blur-2xl border-r border-white/10 flex-col py-5 px-3.5 z-40 transition-all duration-300 ease-in-out select-none",
+          isElectron ? "top-8 h-[calc(100vh-32px)]" : "top-0 h-full",
           isCollapsed ? "w-[72px]" : "w-64 2k:w-72",
         )}
       >
+
         {/* Header & Branding Area - Chiều cao cố định h-11, không nhảy vị trí */}
         <div className="h-11 shrink-0 flex items-center mb-5 transition-all duration-300 w-full overflow-hidden">
           {isCollapsed ? (
@@ -161,17 +172,63 @@ export function MainLayout() {
           })}
         </ul>
 
-        {/* Sync & Storage Status Footer */}
-        <div className="mt-auto pt-3 border-t border-white/10 w-full">
+        {/* Footer: Nút Cài đặt & Trạng thái Sync */}
+        <div className="mt-auto pt-3 border-t border-white/10 w-full flex flex-col gap-2">
+
+          {/* Nút Settings (Cài đặt) */}
+          <Link
+            to="/settings"
+            className={cn(
+              "flex items-center h-11 rounded-xl transition-all duration-200 font-label-caps text-label-caps group relative w-full overflow-hidden",
+              location.pathname === "/settings"
+                ? "text-primary bg-primary/15 border border-primary/30 font-semibold shadow-sm"
+                : "text-on-surface-variant hover:bg-surface-variant/40 hover:text-on-surface border border-transparent",
+            )}
+          >
+            {/* Hộp icon cố định w-11 h-11 căn thẳng hàng 100% với các menu */}
+            <div className="w-11 h-11 flex items-center justify-center shrink-0">
+              <Settings
+                className={cn(
+                  "w-5 h-5 transition-transform duration-200 group-hover:rotate-45",
+                  location.pathname === "/settings"
+                    ? "text-primary"
+                    : "text-on-surface-variant group-hover:text-on-surface",
+                )}
+              />
+            </div>
+
+            {/* Chữ nhãn Cài đặt */}
+            <span
+              className={cn(
+                "whitespace-nowrap transition-all duration-300 ease-in-out overflow-hidden ml-1",
+                isCollapsed
+                  ? "max-w-0 opacity-0 -translate-x-3 pointer-events-none"
+                  : "max-w-[150px] opacity-100 translate-x-0",
+              )}
+            >
+              Cài đặt
+            </span>
+
+            {/* Tooltip khi thu nhỏ */}
+            {isCollapsed && (
+              <div className="absolute left-full ml-3 px-3 py-1.5 bg-black/95 text-white text-xs font-medium rounded-lg shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 whitespace-nowrap z-50">
+                Cài đặt hệ thống
+              </div>
+            )}
+          </Link>
+
+          {/* Sync & Storage Status Badge */}
           <SyncBadge isCollapsed={isCollapsed} />
         </div>
       </nav>
 
 
-      {/* Main Content Area (Tự động mở rộng vùng làm việc theo trạng thái sidebar) */}
+
+      {/* Main Content Area (Tự động mở rộng vùng làm việc theo trạng thái sidebar, ẩn scrollbar chuẩn Desktop) */}
       <main
         className={cn(
-          "flex-1 flex justify-center items-start min-h-[calc(100vh-80px)] overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out box-border",
+          "flex-1 flex justify-center items-start overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out box-border hide-scrollbar",
+          isElectron ? "h-[calc(100vh-32px)] pt-10" : "min-h-[calc(100vh-80px)]",
           location.pathname === "/autocaption"
             ? "p-2 sm:p-3 md:p-4"
             : "p-margin-mobile md:p-margin-desktop 2k:p-10",
@@ -180,7 +237,11 @@ export function MainLayout() {
             : "md:ml-64 2k:ml-72 md:w-[calc(100%-256px)] 2k:w-[calc(100%-288px)]",
         )}
       >
+
+
         <Outlet />
+        {/* Modal Thông Báo Xuất Audio Thành Công (Dành riêng cho Desktop App) */}
+        <AudioExportSuccessModal />
       </main>
 
       {/* Mobile Navigation (Bottom) */}

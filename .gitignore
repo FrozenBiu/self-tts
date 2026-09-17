@@ -18,11 +18,13 @@ backend/presets/bgm/custom/*
 backend/scratch_*.txt
 backend/*.scratch.*
 
-# ── Node / Frontend ──────────────────────────────
+# ── Node / Frontend / Electron ───────────────────
+node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/.env.local
 frontend/.env.production
+release/
 
 # ── Logs & Temp ──────────────────────────────────
 *.log

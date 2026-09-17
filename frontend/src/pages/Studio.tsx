@@ -181,10 +181,11 @@ export default function Studio() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 2k:gap-10 items-start">
-        {/* Left Column: Main Content */}
-        <div className="lg:col-span-8 flex flex-col gap-6 2k:gap-8">
+      <div className="flex flex-col xl:flex-row gap-6 md:gap-8 2k:gap-10 items-start w-full">
+        {/* Left Column: Main Content (Chiếm trọn không gian, giải phóng diện tích cho thẻ giọng đọc) */}
+        <div className="flex-1 min-w-0 flex flex-col gap-6 2k:gap-8 w-full">
           <div className="glass-card rounded-2xl p-6 md:p-8 2k:p-10 flex flex-col gap-6 2k:gap-8 shadow-2xl border border-white/5 relative overflow-hidden">
+
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[100px] pointer-events-none mix-blend-screen" />
 
             {/* Action Bar: Chuyển đổi chế độ + Các nút chức năng hay dùng */}
@@ -357,9 +358,10 @@ export default function Studio() {
           </div>
         </div>
 
-        {/* Right Column: Model Settings */}
-        <div className="lg:col-span-4 flex flex-col gap-6 2k:gap-8 sticky top-6">
+        {/* Right Column: Model Settings (Cố định chiều rộng chuẩn 320px, không lãng phí diện tích) */}
+        <div className="w-full xl:w-[320px] 2k:w-[360px] shrink-0 flex flex-col gap-6 2k:gap-8 xl:sticky xl:top-10">
           <ModelSettingsPanel
+
             cfg_value={cfg_value}
             setCfgValue={setCfgValue}
             speed={speed}

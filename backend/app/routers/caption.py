@@ -354,12 +354,33 @@ async def export_captioned_video(request: ExportCaptionRequest):
         except Exception as cle:
             logger.warning(f"Không thể dọn file trung gian: {cle}")
 
+        final_filename = f"kinetic_{request.session_id[:8]}.mp4"
+        exported_video_path = CAPTIONS_DIR / final_filename
+        actual_file_path = session_dir / "output_final.mp4"
+        try:
+            import shutil
+            shutil.copy2(actual_file_path, exported_video_path)
+            actual_file_path = exported_video_path
+        except Exception as cpe:
+            logger.warning(f"Không thể copy ra thư mục gốc captions: {cpe}")
+
+        file_size_mb = 0.0
+        try:
+            if actual_file_path.exists():
+                file_size_mb = round(os.path.getsize(actual_file_path) / (1024 * 1024), 2)
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "download_url": f"http://localhost:8000/api/caption/download/{request.session_id}",
-            "filename": f"kinetic_{request.session_id[:8]}.mp4",
+            "filename": final_filename,
+            "file_path": str(actual_file_path.resolve()),
+            "dir_path": str(actual_file_path.parent.resolve()),
+            "file_size_mb": file_size_mb,
         }
     except Exception as exc:
+
         logger.error(f"Lỗi khi render video thành phẩm: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Render video thất bại: {str(exc)}"

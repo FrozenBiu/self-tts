@@ -10,11 +10,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 OUTPUTS_DIR = BASE_DIR / "outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
 
-CAPTIONS_DIR = OUTPUTS_DIR / "captions"
-CAPTIONS_DIR.mkdir(exist_ok=True)
+# Thư mục lưu file âm thanh (Audio) - hỗ trợ cấu hình tùy biến
+_custom_audios = os.getenv("CUSTOM_AUDIOS_DIR", "").strip()
+AUDIOS_DIR = Path(_custom_audios) if _custom_audios else (OUTPUTS_DIR / "audios")
+AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
 
-AUDIOS_DIR = OUTPUTS_DIR / "audios"
-AUDIOS_DIR.mkdir(exist_ok=True)
+# Thư mục lưu video Auto Caption - hỗ trợ cấu hình tùy biến
+_custom_videos = os.getenv("CUSTOM_VIDEOS_DIR", "").strip()
+CAPTIONS_DIR = Path(_custom_videos) if _custom_videos else (OUTPUTS_DIR / "captions")
+CAPTIONS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 PRESETS_DIR = BASE_DIR / "presets"
 PRESETS_DIR.mkdir(exist_ok=True)

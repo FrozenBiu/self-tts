@@ -1,0 +1,52 @@
+{
+  "name": "omnivoice-studio-desktop",
+  "version": "1.0.0",
+  "description": "OmniVoice Studio - Ứng dụng Text-to-Speech Chuyên Nghiệp 24kHz",
+  "main": "electron/main.cjs",
+  "private": true,
+  "scripts": {
+    "desktop:start": "node electron/start.cjs",
+    "desktop:dev": "node electron/dev-runner.cjs",
+    "desktop:build": "pnpm --filter frontend build && electron-builder",
+    "build:frontend": "pnpm --filter frontend build"
+  },
+  "keywords": [
+    "tts",
+    "omnivoice",
+    "electron",
+    "react",
+    "voice-cloning"
+  ],
+  "author": "OmniVoice Team",
+  "license": "AGPL-3.0",
+  "build": {
+    "appId": "com.omnivoice.studio",
+    "productName": "OmniVoice Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/dist/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "icon": "assets/app.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "OmniVoice Studio"
+    }
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "electron": "^44.4.1",
+    "rcedit": "^5.0.2",
+    "tree-kill": "^1.2.2",
+    "wait-on": "^9.1.0"
+  }
+}

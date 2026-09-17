@@ -133,33 +133,33 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
 
   return (
     <div className="flex flex-col gap-4 z-10 animate-in fade-in duration-300">
-      {/* Filter Row */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <label className="font-label-caps text-label-caps 2k:text-sm text-on-surface-variant flex items-center gap-2">
+      {/* Filter Row - Linh hoạt, chống nhảy hàng hoặc tràn lấn */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-2">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <label className="font-label-caps text-xs 2k:text-sm text-on-surface-variant flex items-center gap-1.5 shrink-0">
             <span className="material-symbols-outlined text-[18px] 2k:text-[20px]">
               record_voice_over
             </span>
             Mẫu giọng đọc
           </label>
-          <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-1 shadow-inner h-8 2k:h-9">
+          <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-0.5 shadow-inner h-8 2k:h-9">
             <button
               type="button"
-              className={`px-3 2k:px-4 py-1 rounded font-label-caps text-[10px] 2k:text-xs transition-all duration-300 ${voiceType === "all" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
+              className={`px-2.5 sm:px-3 py-1 rounded font-label-caps text-[10px] 2k:text-xs transition-all duration-300 ${voiceType === "all" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm font-semibold" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
               onClick={() => setVoiceType("all")}
             >
               TẤT CẢ
             </button>
             <button
               type="button"
-              className={`px-3 2k:px-4 py-1 rounded font-label-caps text-[10px] 2k:text-xs transition-all duration-300 ${voiceType === "preset" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
+              className={`px-2.5 sm:px-3 py-1 rounded font-label-caps text-[10px] 2k:text-xs transition-all duration-300 ${voiceType === "preset" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm font-semibold" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
               onClick={() => setVoiceType("preset")}
             >
               HỆ THỐNG
             </button>
             <button
               type="button"
-              className={`px-3 2k:px-4 py-1 rounded font-label-caps text-[10px] 2k:text-xs transition-all duration-300 ${voiceType === "custom" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
+              className={`px-2.5 sm:px-3 py-1 rounded font-label-caps text-[10px] 2k:text-xs transition-all duration-300 ${voiceType === "custom" ? "bg-primary/20 text-primary border border-primary/30 shadow-sm font-semibold" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5 border border-transparent"}`}
               onClick={() => setVoiceType("custom")}
             >
               CÁ NHÂN
@@ -167,24 +167,24 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
           </div>
         </div>
 
-        <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-1 w-fit shadow-inner">
+        <div className="inline-flex bg-surface-dim border border-white/5 rounded-lg p-0.5 shadow-inner h-8 2k:h-9 shrink-0">
           <button
             type="button"
-            className={`px-4 2k:px-5 py-1.5 2k:py-2 rounded-md font-label-caps text-xs 2k:text-sm transition-all duration-300 ${!gender || gender === "all" ? "bg-[#FFB74D] text-black shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+            className={`px-3 py-1 rounded text-xs transition-all duration-300 ${!gender || gender === "all" ? "bg-[#FFB74D] text-black font-semibold shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
             onClick={() => setGender("all")}
           >
             Tất cả
           </button>
           <button
             type="button"
-            className={`px-4 2k:px-5 py-1.5 2k:py-2 rounded-md font-label-caps text-xs 2k:text-sm transition-all duration-300 ${gender === "male" ? "bg-[#FFB74D] text-black shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+            className={`px-3 py-1 rounded text-xs transition-all duration-300 ${gender === "male" ? "bg-[#FFB74D] text-black font-semibold shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
             onClick={() => setGender("male")}
           >
             Nam
           </button>
           <button
             type="button"
-            className={`px-4 2k:px-5 py-1.5 2k:py-2 rounded-md font-label-caps text-xs 2k:text-sm transition-all duration-300 ${gender === "female" ? "bg-[#FFB74D] text-black shadow-md" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
+            className={`px-3 py-1 rounded text-xs transition-all duration-300 ${gender === "female" ? "bg-[#FFB74D] text-black font-semibold shadow-sm" : "text-on-surface-variant hover:text-on-surface hover:bg-white/5"}`}
             onClick={() => setGender("female")}
           >
             Nữ
@@ -193,7 +193,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
       </div>
 
       {/* Carousel: Arrow + Grid + Arrow */}
-      <div className="flex items-center gap-3 2k:gap-4">
+      <div className="flex items-center gap-2 sm:gap-3 2k:gap-4 w-full">
         {/* Left Arrow */}
         <button
           type="button"
@@ -210,16 +210,16 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
           </span>
         </button>
 
-        {/* Voice Grid — cố định 6 ô */}
+        {/* Voice Grid — 6 ô linh hoạt */}
         {filteredVoices.length === 0 ? (
-          <div className="flex-1 h-40 2k:h-48 flex items-center justify-center
+          <div className="flex-1 h-36 2k:h-44 flex items-center justify-center
             bg-surface-dim/50 rounded-xl border border-white/5">
             <p className="text-on-surface-variant text-sm 2k:text-base font-label-caps">
               Không tìm thấy giọng đọc nào
             </p>
           </div>
         ) : (
-          <div className="flex-1 grid grid-cols-6 gap-3 2k:gap-4">
+          <div className="flex-1 grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 2k:gap-4 min-w-0">
             {pagedVoices.map((voice, index) => {
               const isSelected = selectedVoiceId === voice.id;
               const isPinned = pinnedVoices?.includes(voice.id);
@@ -228,14 +228,14 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
               return (
                 <div
                   key={voice.id ?? index}
-                  className="relative group h-36 2k:h-44"
+                  className="relative group h-36 2k:h-44 min-w-0"
                 >
                   {/* Pin button */}
-                  <div className="absolute top-2 left-2 z-10">
+                  <div className="absolute top-1.5 left-1.5 z-10">
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onTogglePin(voice.id); }}
-                      className={`w-7 h-7 2k:w-8 2k:h-8 rounded-full flex items-center justify-center transition-all ${
+                      className={`w-6 h-6 2k:w-7 2k:h-7 rounded-full flex items-center justify-center transition-all ${
                         isPinned
                           ? "text-primary bg-primary/10 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
                           : "text-primary/40 hover:text-primary/80 opacity-0 group-hover:opacity-100"
@@ -243,7 +243,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                       title={isPinned ? "Bỏ ghim" : "Ghim lên đầu"}
                     >
                       <span
-                        className="material-symbols-outlined text-[16px] 2k:text-[18px]"
+                        className="material-symbols-outlined text-[15px] 2k:text-[17px]"
                         style={{ fontVariationSettings: isPinned ? "'FILL' 1" : "'FILL' 0" }}
                       >
                         star
@@ -252,18 +252,18 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                   </div>
 
                   {/* Play preview button */}
-                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                  <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                     <button
                       type="button"
                       onClick={(e) => handlePlayPreview(voice.url, e)}
-                      className="w-7 h-7 2k:w-8 2k:h-8 rounded-full bg-primary/20 backdrop-blur
+                      className="w-6 h-6 2k:w-7 2k:h-7 rounded-full bg-primary/20 backdrop-blur
                         text-primary flex items-center justify-center
                         hover:bg-primary hover:text-on-primary transition-colors
                         shadow-[0_0_10px_rgba(245,158,11,0.2)]"
                       title={isPlaying ? "Dừng phát" : "Nghe thử"}
                     >
                       <span
-                        className="material-symbols-outlined text-[16px] 2k:text-[18px]"
+                        className="material-symbols-outlined text-[15px] 2k:text-[17px]"
                         style={{ fontVariationSettings: "'FILL' 1" }}
                       >
                         {isPlaying ? "pause" : "play_arrow"}
@@ -275,30 +275,31 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                   <button
                     type="button"
                     onClick={() => onSelectVoice(voice.id)}
-                    className={`w-full h-full flex flex-col items-center justify-center gap-2 p-2 2k:p-3
-                      rounded-xl bg-white/5 backdrop-blur-md transition-all duration-300 border ${
+                    title={`${voice.name} - ${voice.description}`}
+                    className={`w-full h-full flex flex-col items-center justify-center gap-1.5 p-2 2k:p-3
+                      rounded-xl bg-white/5 backdrop-blur-md transition-all duration-300 border min-w-0 overflow-hidden ${
                       isSelected
                         ? "border-primary ring-1 ring-primary shadow-[0_0_15px_rgba(245,158,11,0.2)] bg-primary/10"
                         : "border-white/10 hover:border-primary/50 hover:bg-white/10"
                     }`}
                   >
                     <span
-                      className={`material-symbols-outlined text-2xl 2k:text-3xl ${
+                      className={`material-symbols-outlined text-2xl 2k:text-3xl shrink-0 ${
                         isSelected ? "text-primary" : "text-on-surface-variant group-hover:text-primary"
                       }`}
                     >
                       {voice.icon}
                     </span>
-                    <div className="text-center w-full">
-                      <p className="font-label-caps text-[11px] 2k:text-sm text-on-surface truncate px-1">
+                    <div className="text-center w-full px-0.5 min-w-0 overflow-hidden">
+                      <p className="text-xs 2k:text-sm font-semibold text-on-surface truncate tracking-tight block">
                         {voice.name}
                       </p>
                       {voice.samples_count && voice.samples_count > 1 && (
-                        <span className="inline-block text-[9px] px-1.5 py-0.2 rounded-full bg-primary/20 text-primary border border-primary/30 font-mono-data font-semibold mt-0.5">
+                        <span className="inline-block text-[9px] px-1.5 py-[1px] rounded-full bg-primary/20 text-primary border border-primary/30 font-mono font-semibold mt-0.5">
                           {voice.samples_count} mẫu
                         </span>
                       )}
-                      <p className="text-[10px] 2k:text-xs text-on-surface-variant mt-0.5 line-clamp-1 px-1">
+                      <p className="text-[10px] 2k:text-xs text-on-surface-variant/80 mt-0.5 truncate block">
                         {voice.description}
                       </p>
                     </div>
@@ -310,11 +311,12 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             {/* Ô trống để giữ đủ 6 cột khi < 6 kết quả */}
             {pagedVoices.length < CARDS_PER_PAGE &&
               Array.from({ length: CARDS_PER_PAGE - pagedVoices.length }).map((_, i) => (
-                <div key={`empty-${i}`} className="h-36 2k:h-44 rounded-xl border border-dashed border-white/5 bg-white/[0.02]" />
+                <div key={`empty-${i}`} className="h-36 2k:h-44 rounded-xl border border-dashed border-white/5 bg-white/[0.02] hidden sm:block" />
               ))
             }
           </div>
         )}
+
 
         {/* Right Arrow */}
         <button

@@ -122,6 +122,15 @@ export default function AutoCaption() {
 
   // Export State
   const [isExporting, setIsExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<{
+    filename: string;
+    filePath: string;
+    dirPath: string;
+    fileSizeMb?: number;
+    downloadUrl: string;
+  } | null>(null);
+  const [isExportSuccessModalOpen, setIsExportSuccessModalOpen] = useState(false);
+
 
   // Reference Script State
   const [referenceScript, setReferenceScript] = useState("");
@@ -893,31 +902,49 @@ export default function AutoCaption() {
 
       const data = await response.json();
 
-      // Tự động tải video về máy tính
-      try {
-        const fileRes = await fetch(data.download_url);
-        const blob = await fileRes.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
-        const dl = document.createElement("a");
-        dl.href = blobUrl;
-        dl.download = data.filename || `captioned_${Date.now()}.mp4`;
-        document.body.appendChild(dl);
-        dl.click();
-        document.body.removeChild(dl);
-        window.URL.revokeObjectURL(blobUrl);
-        toast.success(
-          "✨ Xuất video hoàn tất! File đã được tự động tải về máy.",
-        );
-      } catch (blobErr) {
-        const dl = document.createElement("a");
-        dl.href = data.download_url;
-        dl.download = data.filename || `captioned_${Date.now()}.mp4`;
-        dl.target = "_blank";
-        document.body.appendChild(dl);
-        dl.click();
-        document.body.removeChild(dl);
-        toast.success("✨ Xuất video hoàn tất! File đang được tải về.");
+      // Kiểm tra môi trường Desktop (Electron) hay Web Browser
+      const isElectron =
+        typeof window !== "undefined" && Boolean(window.electronAPI?.isElectron);
+
+      if (isElectron) {
+        // Desktop App: File đã được lưu sẵn trên máy, hiển thị popup có nút mở thư mục & xem video
+        setExportResult({
+          filename: data.filename || `kinetic_${sessionId.slice(0, 8)}.mp4`,
+          filePath: data.file_path || "",
+          dirPath: data.dir_path || "",
+          fileSizeMb: data.file_size_mb,
+          downloadUrl: data.download_url,
+        });
+        setIsExportSuccessModalOpen(true);
+        toast.success("✨ Xuất video thành công!");
+      } else {
+        // Web Browser: Tự động tải video về máy tính qua thẻ <a> của trình duyệt
+        try {
+          const fileRes = await fetch(data.download_url);
+          const blob = await fileRes.blob();
+          const blobUrl = window.URL.createObjectURL(blob);
+          const dl = document.createElement("a");
+          dl.href = blobUrl;
+          dl.download = data.filename || `captioned_${Date.now()}.mp4`;
+          document.body.appendChild(dl);
+          dl.click();
+          document.body.removeChild(dl);
+          window.URL.revokeObjectURL(blobUrl);
+          toast.success(
+            "✨ Xuất video hoàn tất! File đã được tự động tải về máy.",
+          );
+        } catch (blobErr) {
+          const dl = document.createElement("a");
+          dl.href = data.download_url;
+          dl.download = data.filename || `captioned_${Date.now()}.mp4`;
+          dl.target = "_blank";
+          document.body.appendChild(dl);
+          dl.click();
+          document.body.removeChild(dl);
+          toast.success("✨ Xuất video hoàn tất! File đang được tải về.");
+        }
       }
+
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi xuất video");
     } finally {
@@ -1854,6 +1881,121 @@ export default function AutoCaption() {
           toast.success("✨ Đã nạp kịch bản từ Thư viện thành công!");
         }}
       />
+
+      {/* Modal Thông Báo Xuất Video Thành Công (Dành riêng cho Desktop App) */}
+      {isExportSuccessModalOpen && exportResult && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-surface-dim border border-white/10 rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col gap-5 relative overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Glow effect */}
+            <div className="absolute top-0 right-0 w-48 h-48 bg-primary/10 rounded-full blur-[80px] pointer-events-none" />
+
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 shadow-inner">
+                <Video className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  Xuất Video Thành Công!
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono font-medium">
+                    1080p HD
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Video đã được render kèm phụ đề Kinetic và lưu an toàn vào máy tính của bạn.
+                </p>
+              </div>
+            </div>
+
+            {/* File Info Box */}
+            <div className="p-4 rounded-xl bg-black/40 border border-white/10 flex flex-col gap-2.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Tên tệp video:</span>
+                <span className="font-semibold text-white font-mono">{exportResult.filename}</span>
+              </div>
+              {exportResult.fileSizeMb && exportResult.fileSizeMb > 0 && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Dung lượng:</span>
+                  <span className="text-amber-400 font-mono">{exportResult.fileSizeMb} MB</span>
+                </div>
+              )}
+              <div className="flex flex-col gap-1 text-xs border-t border-white/5 pt-2">
+                <span className="text-slate-400">Vị trí lưu trữ:</span>
+                <span className="font-mono text-[11px] text-slate-300 break-all bg-white/5 p-2 rounded-lg border border-white/5 select-all">
+                  {exportResult.filePath || exportResult.dirPath}
+                </span>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-1">
+              {/* Nút 1: Mở thư mục chứa video */}
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    if (exportResult.filePath && window.electronAPI?.showItemInFolder) {
+                      await window.electronAPI.showItemInFolder(exportResult.filePath);
+                      toast.success("📁 Đang mở thư mục và chọn video...");
+                    } else if (exportResult.dirPath && window.electronAPI?.openPath) {
+                      await window.electronAPI.openPath(exportResult.dirPath);
+                      toast.success("📁 Đang mở thư mục chứa video...");
+                    } else {
+                      toast.info(`Vị trí lưu: ${exportResult.filePath || exportResult.dirPath}`);
+                    }
+                  } catch (e: any) {
+                    console.error("Lỗi khi mở thư mục:", e);
+                    toast.error(`Không thể mở thư mục: ${e?.message || e}`);
+                  }
+                }}
+                className="w-full sm:flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-primary hover:bg-primary/90 text-black font-semibold text-xs sm:text-sm transition-all shadow-lg shadow-primary/20 cursor-pointer"
+              >
+                <FolderOpen className="w-4 h-4" />
+                <span>Mở thư mục chứa Video</span>
+              </button>
+
+              {/* Nút 2: Xem video ngay */}
+              {exportResult.filePath && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      if (window.electronAPI?.openPath) {
+                        toast.info("🎬 Đang khởi chạy trình phát video...");
+                        const err = await window.electronAPI.openPath(exportResult.filePath);
+                        if (err) {
+                          toast.error(`Không thể mở video: ${err}`);
+                        }
+                      } else {
+                        toast.info(`Tệp video: ${exportResult.filePath}`);
+                      }
+                    } catch (e: any) {
+                      console.error("Lỗi khi mở video:", e);
+                      toast.error(`Không thể mở video: ${e?.message || e}`);
+                    }
+                  }}
+                  className="w-full sm:w-auto flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 font-medium text-xs transition-colors cursor-pointer border border-white/5"
+                  title="Mở video bằng trình phát mặc định của Windows"
+                >
+                  <Play className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Xem video</span>
+                </button>
+              )}
+
+
+              {/* Nút 3: Đóng modal quay lại ứng dụng */}
+              <button
+                type="button"
+                onClick={() => setIsExportSuccessModalOpen(false)}
+                className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-medium transition-colors cursor-pointer"
+              >
+                Quay lại
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

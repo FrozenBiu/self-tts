@@ -1,5 +1,10 @@
-from fastapi import APIRouter, BackgroundTasks
+import os
+import shutil
+from pathlib import Path
+import httpx
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
+from app.core.config import AUDIOS_DIR, OUTPUTS_DIR, logger
 from app.schemas.tts import (
     TTSRequest,
     TTSResponse,
@@ -8,6 +13,8 @@ from app.schemas.tts import (
     DeleteBatchAudioRequest,
     StitchRequest,
     StitchResponse,
+    LocateAudioRequest,
+    LocateAudioResponse,
 )
 from app.services.tts_service import (
     synthesize_speech,
@@ -16,6 +23,7 @@ from app.services.tts_service import (
     delete_multiple_audios,
     cleanup_orphan_files,
     stitch_audio_blocks,
+    _find_audio_file,
 )
 
 router = APIRouter(tags=["TTS"])
@@ -31,6 +39,84 @@ async def text_to_speech(
     background_tasks: BackgroundTasks,
 ):
     return await synthesize_speech(request, background_tasks)
+
+
+@router.post(
+    "/api/tts/locate",
+    response_model=LocateAudioResponse,
+    summary="Xác định vị trí tệp âm thanh trên đĩa cứng và đồng bộ sang thư mục lưu trữ Audio",
+)
+async def locate_audio(request: LocateAudioRequest):
+    raw_filename = (
+        request.custom_filename
+        or request.filename
+        or request.url.split("?")[0].split("/").pop()
+        or "audio.mp3"
+    )
+    safe_filename = os.path.basename(raw_filename)
+    if not safe_filename:
+        safe_filename = "audio.mp3"
+
+    AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
+    target_dest = AUDIOS_DIR / safe_filename
+
+    # 1. Nếu file đã có sẵn trong AUDIOS_DIR
+    if target_dest.exists():
+        size_mb = round(os.path.getsize(target_dest) / (1024 * 1024), 2)
+        return LocateAudioResponse(
+            status="success",
+            filename=safe_filename,
+            file_path=str(target_dest.resolve()),
+            dir_path=str(target_dest.parent.resolve()),
+            file_size_mb=size_mb,
+        )
+
+    # 2. Tìm kiếm trong OUTPUTS_DIR và các thư mục session con
+    found_path = _find_audio_file(safe_filename)
+    if not found_path:
+        for p in OUTPUTS_DIR.glob(f"**/{safe_filename}"):
+            if p.is_file():
+                found_path = p
+                break
+
+    if found_path and found_path.exists():
+        try:
+            shutil.copy2(found_path, target_dest)
+            final_path = target_dest
+        except Exception as e:
+            logger.warning(f"Không thể copy sang AUDIOS_DIR: {e}")
+            final_path = found_path
+
+        size_mb = round(os.path.getsize(final_path) / (1024 * 1024), 2)
+        return LocateAudioResponse(
+            status="success",
+            filename=safe_filename,
+            file_path=str(final_path.resolve()),
+            dir_path=str(final_path.parent.resolve()),
+            file_size_mb=size_mb,
+        )
+
+    # 3. Nếu là URL từ xa (R2 Cloudflare hoặc server ngoài)
+    if request.url.startswith("http://") or request.url.startswith("https://"):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.get(request.url)
+                if res.status_code == 200:
+                    with open(target_dest, "wb") as f:
+                        f.write(res.content)
+                    size_mb = round(os.path.getsize(target_dest) / (1024 * 1024), 2)
+                    return LocateAudioResponse(
+                        status="success",
+                        filename=safe_filename,
+                        file_path=str(target_dest.resolve()),
+                        dir_path=str(target_dest.parent.resolve()),
+                        file_size_mb=size_mb,
+                    )
+        except Exception as exc:
+            logger.warning(f"Lỗi khi tải audio từ URL {request.url}: {exc}")
+
+    raise HTTPException(status_code=404, detail=f"Không tìm thấy file audio '{safe_filename}' trên hệ thống")
+
 
 
 @router.delete(

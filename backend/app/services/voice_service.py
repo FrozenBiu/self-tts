@@ -22,6 +22,7 @@ from app.core.config import (
 )
 from app.schemas.voice import RandomVoiceRequest
 from app.services.tts_service import cleanup_old_files
+from app.services.audio_cleaner import clean_audio_pipeline
 from model_handler import (
     SAMPLE_RATE,
     create_voice_prompt,
@@ -61,6 +62,8 @@ async def clone_custom_voice(
     description: str = "Giọng tự tạo",
     gender: str = "all",
     icon: str = "record_voice_over",
+    isolate_vocal: bool = False,
+    denoise: bool = False,
 ) -> dict:
     """
     Clone giọng đọc từ 1 hoặc nhiều mẫu âm thanh tham chiếu (Multi-Sample Reference).
@@ -110,6 +113,17 @@ async def clone_custom_voice(
             # Load audio về 24,000Hz mono
             y, _ = librosa.load(str(temp_path), sr=SAMPLE_RATE)
             if len(y) > 0:
+                # Nếu yêu cầu tách nhạc nền hoặc khử ồn
+                if isolate_vocal or denoise:
+                    logger.info(f"🎙️ [VoiceService] Đang làm sạch mẫu '{fname}' (isolate_vocal={isolate_vocal}, denoise={denoise})...")
+                    y = clean_audio_pipeline(
+                        input_data=y,
+                        sr=SAMPLE_RATE,
+                        target_sr=SAMPLE_RATE,
+                        isolate_vocal=isolate_vocal,
+                        denoise=denoise,
+                        normalize=True,
+                    )
                 # 1. Peak Normalize từng mẫu để cân bằng âm lượng
                 peak = np.max(np.abs(y))
                 if peak > 0:
@@ -398,3 +412,52 @@ async def save_preview_as_custom_voice(
     except Exception as e:
         logger.exception("Lỗi khi lưu giọng ngẫu nhiên")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def preview_clean_audio(
+    file: UploadFile,
+    isolate_vocal: bool = True,
+    denoise: bool = True,
+) -> dict:
+    """Làm sạch thử một file âm thanh (tách nhạc / khử ồn) và xuất ra file xem trước."""
+    fname = file.filename or "sample.wav"
+    if not fname.lower().endswith((".wav", ".mp3", ".m4a", ".webm", ".ogg")):
+        raise HTTPException(
+            status_code=400, detail=f"File '{fname}' không đúng định dạng (.wav, .mp3, .m4a, .webm, .ogg)"
+        )
+
+    preview_id = f"clean_preview_{uuid.uuid4().hex[:8]}"
+    temp_path = BASE_DIR / f"temp_{preview_id}_{fname}"
+
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # Chạy pipeline làm sạch
+        cleaned_audio = clean_audio_pipeline(
+            input_data=temp_path,
+            target_sr=SAMPLE_RATE,
+            isolate_vocal=isolate_vocal,
+            denoise=denoise,
+            normalize=True,
+        )
+
+        out_name = f"{preview_id}.wav"
+        out_path = OUTPUTS_DIR / out_name
+        sf.write(str(out_path), cleaned_audio, SAMPLE_RATE)
+
+        duration = round(len(cleaned_audio) / SAMPLE_RATE, 2)
+        logger.info(f"✅ [VoiceService] Đã tạo audio làm sạch xem trước ({duration}s): {out_name}")
+
+        return {
+            "message": "Làm sạch âm thanh thành công!",
+            "clean_audio_url": f"http://localhost:8000/outputs/{out_name}",
+            "filename": out_name,
+            "duration": duration,
+        }
+    except Exception as e:
+        logger.exception("Lỗi khi xử lý làm sạch âm thanh mẫu")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        temp_path.unlink(missing_ok=True)
+

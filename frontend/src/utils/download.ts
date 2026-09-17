@@ -1,9 +1,53 @@
 import { toast } from "sonner";
+import { useAudioExportModalStore } from "../store/useAudioExportModalStore";
 
 export async function downloadAudioFile(rawUrl: string, customFilename?: string) {
   if (!rawUrl) return;
 
-  const filename = customFilename || rawUrl.split("/").pop() || "audio.mp3";
+  const filename = customFilename || rawUrl.split("?")[0].split("/").pop() || "audio.mp3";
+  const isElectron = typeof window !== "undefined" && Boolean(window.electronAPI?.isElectron);
+
+  // ── 1. DÀNH RIÊNG CHO DESKTOP APP: KHÔNG BẬT POPUP DOWNLOAD TRÌNH DUYỆT ───────────
+  if (isElectron) {
+    const toastId = toast.loading("Đang chuẩn bị tệp âm thanh trên máy...");
+    try {
+      const apiHost = window.location.hostname === "127.0.0.1" ? "127.0.0.1:8000" : "localhost:8000";
+      const res = await fetch(`http://${apiHost}/api/tts/locate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: rawUrl,
+          filename: filename,
+          custom_filename: customFilename,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        toast.dismiss(toastId);
+
+        // Mở popup modal thông báo xuất Audio chuẩn desktop
+        useAudioExportModalStore.getState().openModal({
+          title: "Xuất Audio Thành Công!",
+          filename: data.filename || filename,
+          filePath: data.file_path,
+          dirPath: data.dir_path,
+          fileSizeMb: data.file_size_mb,
+        });
+
+        toast.success("✨ Tệp âm thanh đã sẵn sàng!");
+        return;
+      } else {
+        console.warn(`API locate trả về HTTP ${res.status}, tiếp tục phương thức dự phòng...`);
+      }
+    } catch (err: any) {
+      console.warn("Locate audio qua backend thất bại, fallback sang tải truyền thống:", err);
+    } finally {
+      toast.dismiss(toastId);
+    }
+  }
+
+  // ── 2. DÀNH CHO TRÌNH DUYỆT WEB (HOẶC PHƯƠNG ÁN DỰ PHÒNG) ─────────────────────────
   const toastId = toast.loading("Đang chuẩn bị file tải xuống...");
 
   try {

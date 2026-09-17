@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import { MainLayout } from "./layouts/MainLayout";
 import Studio from "./pages/Studio";
 import Library from "./pages/Library";
@@ -7,10 +7,11 @@ import ProjectDetail from "./pages/ProjectDetail";
 
 import CloningVoice from "./pages/CloningVoice";
 import AutoCaption from "./pages/AutoCaption";
+import Settings from "./pages/Settings";
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Studio />} />
@@ -20,8 +21,10 @@ export default function App() {
           <Route path="cloning-voice" element={<CloningVoice />} />
           <Route path="autocaption" element={<AutoCaption />} />
           <Route path="caption" element={<AutoCaption />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
+

@@ -13,7 +13,6 @@ import {
   UploadCloud,
   FileAudio,
   Sparkles,
-  Info,
   CheckCircle2,
   AlertCircle,
   Sliders,
@@ -23,6 +22,9 @@ import {
   Quote,
   Hash,
   Wand2,
+  Music,
+  VolumeX,
+  Loader2,
 } from "lucide-react";
 
 // Ánh xạ tên Tiếng Anh sang Tiếng Việt để hiển thị thẻ
@@ -139,6 +141,11 @@ export default function CloningVoice() {
   const [guidedStyle, setGuidedStyle] = useState("random");
   const [customPreviewText, setCustomPreviewText] = useState("");
   const [seedInput, setSeedInput] = useState<string>("");
+
+  // Vocal isolation & denoise state
+  const [autoIsolateVocal, setAutoIsolateVocal] = useState(false);
+  const [autoDenoise, setAutoDenoise] = useState(false);
+  const [cleaningSampleIdx, setCleaningSampleIdx] = useState<number | null>(null);
 
   const [isGeneratingRandom, setIsGeneratingRandom] = useState(false);
   const [isSavingRandom, setIsSavingRandom] = useState(false);
@@ -358,8 +365,15 @@ export default function CloningVoice() {
       // Đẩy mảng transcript tương ứng
       const transcriptsList = samples.map((s) => s.transcript.trim());
       formData.append("transcripts", JSON.stringify(transcriptsList));
+      formData.append("isolate_vocal", String(autoIsolateVocal));
+      formData.append("denoise", String(autoDenoise));
 
-      toast.loading("Đang trích xuất VoiceClonePrompt đa mẫu (OmniVoice/Whisper)...", { id: toastId });
+      toast.loading(
+        autoIsolateVocal
+          ? "Đang tách nhạc nền Demucs & trích xuất VoiceClonePrompt..."
+          : "Đang trích xuất VoiceClonePrompt đa mẫu (OmniVoice/Whisper)...",
+        { id: toastId }
+      );
       const res = await fetch("http://localhost:8000/api/voices/clone", {
         method: "POST",
         body: formData,
@@ -386,6 +400,56 @@ export default function CloningVoice() {
       toast.error(`Lỗi: ${err.message}`, { id: toastId });
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // Làm sạch thử một mẫu âm thanh tham chiếu (Tách nhạc Demucs + Khử ồn)
+  const handleCleanSample = async (index: number) => {
+    const s = samples[index];
+    if (!s) return;
+    setCleaningSampleIdx(index);
+    const toastId = toast.loading(`Đang tách nhạc & khử ồn qua Demucs cho mẫu #${index + 1}...`);
+    try {
+      const fd = new FormData();
+      fd.append("file", s.file);
+      fd.append("isolate_vocal", "true");
+      fd.append("denoise", "true");
+
+      const res = await fetch("http://localhost:8000/api/voices/clean-preview", {
+        method: "POST",
+        body: fd,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Lỗi khi xử lý làm sạch âm thanh");
+      }
+
+      const resData = await res.json();
+      const audioRes = await fetch(resData.clean_audio_url);
+      const audioBlob = await audioRes.blob();
+      const cleanedFile = new File([audioBlob], `cleaned_${s.file.name}`, { type: "audio/wav" });
+      const cleanedUrl = URL.createObjectURL(audioBlob);
+
+      setSamples((prev) =>
+        prev.map((item, idx) =>
+          idx === index
+            ? {
+                ...item,
+                file: cleanedFile,
+                audioUrl: cleanedUrl,
+                duration: resData.duration || item.duration,
+                name: `[Đã tách nhạc] ${item.name}`,
+              }
+            : item
+        )
+      );
+
+      toast.success("Đã tách nhạc nền và khử tạp âm thành công! Bạn có thể nghe thử lại.", { id: toastId });
+    } catch (err: any) {
+      toast.error(`Lỗi: ${err.message}`, { id: toastId });
+    } finally {
+      setCleaningSampleIdx(null);
     }
   };
 
@@ -729,6 +793,50 @@ export default function CloningVoice() {
                     </button>
                   </div>
 
+                  {/* Thanh tùy chọn làm sạch âm thanh mẫu */}
+                  <div className="p-3 rounded-xl bg-primary/5 border border-primary/15 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-primary shrink-0" />
+                      <div>
+                        <div className="text-xs font-semibold text-on-surface flex items-center gap-1.5">
+                          Tự động làm sạch mẫu khi Clone
+                          <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[9px] font-bold">
+                            Demucs AI
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-on-surface-variant/70">
+                          Loại bỏ beat/nhạc nền BGM và tiếng ồn quạt/mic rè trước khi trích xuất .pt
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4 shrink-0 text-xs">
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={autoIsolateVocal}
+                          onChange={(e) => setAutoIsolateVocal(e.target.checked)}
+                          className="rounded border-white/20 text-primary focus:ring-primary/40 bg-black/40 w-3.5 h-3.5"
+                        />
+                        <span className="text-[11px] text-on-surface flex items-center gap-1">
+                          <Music className="w-3 h-3 text-primary" /> Tách nhạc (BGM)
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={autoDenoise}
+                          onChange={(e) => setAutoDenoise(e.target.checked)}
+                          className="rounded border-white/20 text-primary focus:ring-primary/40 bg-black/40 w-3.5 h-3.5"
+                        />
+                        <span className="text-[11px] text-on-surface flex items-center gap-1">
+                          <VolumeX className="w-3 h-3 text-primary" /> Khử ồn nền
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1">
                     {samples.map((s, idx) => {
                       const isPlaying = playingSampleId === s.id;
@@ -773,14 +881,40 @@ export default function CloningVoice() {
                               </div>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveSample(s.id)}
-                              className="p-1.5 rounded-lg text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors shrink-0"
-                              title="Xóa mẫu này"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                disabled={cleaningSampleIdx === idx}
+                                onClick={() => handleCleanSample(idx)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-all flex items-center gap-1 ${
+                                  cleaningSampleIdx === idx
+                                    ? "bg-primary/20 text-primary animate-pulse"
+                                    : "bg-white/5 hover:bg-primary/15 text-on-surface-variant hover:text-primary border border-white/5"
+                                }`}
+                                title="Tách vocal khỏi nhạc nền và khử ồn cho mẫu này"
+                              >
+                                {cleaningSampleIdx === idx ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    Đang tách...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Sparkles className="w-3 h-3 text-primary" />
+                                    Lọc sạch
+                                  </>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSample(s.id)}
+                                className="p-1.5 rounded-lg text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors"
+                                title="Xóa mẫu này"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
 
                           {/* Ô nhập transcript riêng cho từng mẫu */}

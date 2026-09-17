@@ -7,6 +7,7 @@ from app.services.voice_service import (
     generate_random_preview,
     discard_preview_voice,
     save_preview_as_custom_voice,
+    preview_clean_audio,
 )
 
 router = APIRouter(prefix="/api/voices", tags=["Voices"])
@@ -28,6 +29,8 @@ async def clone_voice(
     description: str = Form("Giọng tự tạo"),
     gender: str = Form("all"),
     icon: str = Form("record_voice_over"),
+    isolate_vocal: bool = Form(False),
+    denoise: bool = Form(False),
 ):
     # Tập hợp các file tải lên
     uploaded_files: list[UploadFile] = []
@@ -48,6 +51,22 @@ async def clone_voice(
         description=description,
         gender=gender,
         icon=icon,
+        isolate_vocal=isolate_vocal,
+        denoise=denoise,
+    )
+
+
+@router.post("/clean-preview", summary="Làm sạch thử audio (tách vocal / khử tạp âm) để nghe thử trước khi clone")
+async def clean_preview_audio(
+    file: UploadFile = File(...),
+    isolate_vocal: bool = Form(True),
+    denoise: bool = Form(True),
+):
+    """Lọc sạch nhạc nền BGM (Demucs) và khử ồn (Denoise) cho một file mẫu để nghe thử."""
+    return await preview_clean_audio(
+        file=file,
+        isolate_vocal=isolate_vocal,
+        denoise=denoise,
     )
 
 

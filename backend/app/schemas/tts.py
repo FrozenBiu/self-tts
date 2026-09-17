@@ -169,3 +169,18 @@ class StitchResponse(BaseModel):
     srt_url: str | None = None
     total_duration: float
     segments: list[StitchSegmentItem] = []
+
+
+class LocateAudioRequest(BaseModel):
+    url: str
+    filename: str | None = None
+    custom_filename: str | None = None
+
+
+class LocateAudioResponse(BaseModel):
+    status: str
+    filename: str
+    file_path: str
+    dir_path: str
+    file_size_mb: float
+
