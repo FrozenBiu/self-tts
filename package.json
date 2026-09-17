@@ -7,7 +7,8 @@
   "scripts": {
     "desktop:start": "node electron/start.cjs",
     "desktop:dev": "node electron/dev-runner.cjs",
-    "desktop:build": "pnpm --filter frontend build && electron-builder",
+    "desktop:pack": "pnpm --filter frontend build && node electron/customize-exe.cjs && electron-builder --dir",
+    "desktop:build": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter frontend build && node electron/customize-exe.cjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
     "build:frontend": "pnpm --filter frontend build"
   },
   "keywords": [
@@ -22,6 +23,7 @@
   "build": {
     "appId": "com.omnivoice.studio",
     "productName": "OmniVoice Studio",
+    "forceCodeSigning": false,
     "directories": {
       "output": "release"
     },
@@ -30,8 +32,30 @@
       "frontend/dist/**/*",
       "assets/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!venv/**/*",
+          "!outputs/**/*",
+          "!local_models/**/*",
+          "!__pycache__/**/*"
+        ]
+      },
+      {
+        "from": "assets",
+        "to": "assets"
+      },
+      {
+        "from": "python_runtime",
+        "to": "python"
+      }
+    ],
     "win": {
       "icon": "assets/app.ico",
+      "signAndEditExecutable": false,
       "target": [
         "nsis"
       ]
@@ -39,12 +63,18 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "OmniVoice Studio"
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OmniVoice Studio",
+      "installerIcon": "assets/app.ico",
+      "uninstallerIcon": "assets/app.ico",
+      "installerHeaderIcon": "assets/app.ico"
     }
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
     "electron": "^44.4.1",
+    "electron-builder": "^26.15.3",
     "rcedit": "^5.0.2",
     "tree-kill": "^1.2.2",
     "wait-on": "^9.1.0"

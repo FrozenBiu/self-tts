@@ -14,11 +14,15 @@ const http = require("http");
 const kill = require("tree-kill");
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-const ROOT_DIR = path.resolve(__dirname, "..");
-const BACKEND_DIR = path.join(ROOT_DIR, "backend");
-const OUTPUTS_DIR = path.join(BACKEND_DIR, "outputs");
-const ICON_PATH = path.join(ROOT_DIR, "assets", "app.ico");
-const PNG_ICON_PATH = path.join(ROOT_DIR, "assets", "app.png");
+const ROOT_DIR = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
+const BACKEND_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, "backend")
+  : path.join(path.resolve(__dirname, ".."), "backend");
+const ASSETS_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, "assets")
+  : path.join(path.resolve(__dirname, ".."), "assets");
+const ICON_PATH = path.join(ASSETS_DIR, "app.ico");
+const PNG_ICON_PATH = path.join(ASSETS_DIR, "app.png");
 
 // Đặt tên ứng dụng và AppUserModelId cho Windows Taskbar & Task Manager
 process.title = "OmniVoice Studio";
@@ -26,6 +30,30 @@ app.name = "OmniVoice Studio";
 app.setName("OmniVoice Studio");
 if (process.platform === "win32") {
   app.setAppUserModelId("com.omnivoice.studio");
+}
+
+// Thư mục dữ liệu người dùng khi đã cài đặt app
+const USER_DATA_DIR = app.getPath("userData");
+const ENV_PATH = app.isPackaged
+  ? path.join(USER_DATA_DIR, ".env")
+  : path.join(BACKEND_DIR, ".env");
+
+// Tự động khởi tạo .env trong userData nếu chưa có (khi chạy từ bộ cài đặt)
+if (app.isPackaged) {
+  try {
+    const fs = require("fs");
+    if (!fs.existsSync(ENV_PATH)) {
+      const srcEnv = path.join(BACKEND_DIR, ".env");
+      const srcEnvExample = path.join(BACKEND_DIR, ".env.example");
+      if (fs.existsSync(srcEnv)) {
+        fs.copyFileSync(srcEnv, ENV_PATH);
+      } else if (fs.existsSync(srcEnvExample)) {
+        fs.copyFileSync(srcEnvExample, ENV_PATH);
+      }
+    }
+  } catch (err) {
+    console.warn("[Electron] Không thể copy .env vào userData:", err);
+  }
 }
 
 let mainWindow = null;
@@ -50,11 +78,22 @@ if (!gotTheLock) {
 
 // ── 1. Tìm đường dẫn Python ──────────────────────────────────────────────────
 function getPythonExecutable() {
-  const venvPythonWin = path.join(BACKEND_DIR, "venv", "Scripts", "python.exe");
   const fs = require("fs");
+  // 1. Kiểm tra python nhúng trong resources (khi chạy từ bộ cài Setup đã cài đặt)
+  const bundledPython = path.join(process.resourcesPath, "python", "python.exe");
+  if (fs.existsSync(bundledPython)) return bundledPython;
+
+  // 2. Kiểm tra python_runtime portable ở thư mục gốc (nếu có)
+  const localRuntimePython = path.join(path.resolve(__dirname, ".."), "python_runtime", "python.exe");
+  if (fs.existsSync(localRuntimePython)) return localRuntimePython;
+
+  // 3. Môi trường venv cục bộ trong backend
+  const venvPythonWin = path.join(BACKEND_DIR, "venv", "Scripts", "python.exe");
   if (fs.existsSync(venvPythonWin)) {
     return venvPythonWin;
   }
+
+  // 4. Fallback sang python trên máy người dùng
   return process.platform === "win32" ? "python.exe" : "python3";
 }
 
@@ -76,6 +115,8 @@ function startBackend() {
         ...process.env,
         PYTHONUTF8: "1",
         PYTHONIOENCODING: "utf-8",
+        PYTHONPATH: BACKEND_DIR,
+        ENV_FILE_PATH: ENV_PATH,
       },
     },
   );
@@ -370,9 +411,8 @@ ipcMain.handle("select-directory", async (_event, defaultPath) => {
 // Mở file .env trực tiếp bằng trình soạn thảo mặc định (Notepad)
 ipcMain.handle("open-env-file", async () => {
   const fs = require("fs");
-  const envPath = path.join(BACKEND_DIR, ".env");
-  if (fs.existsSync(envPath)) {
-    shell.openPath(envPath);
+  if (fs.existsSync(ENV_PATH)) {
+    shell.openPath(ENV_PATH);
     return true;
   }
   return false;

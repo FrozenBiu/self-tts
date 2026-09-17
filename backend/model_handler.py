@@ -10,6 +10,8 @@ Chứa toàn bộ logic liên quan đến OmniVoice (k2-fsa):
       + Auto Voice: mô hình tự động chọn giọng phù hợp.
 """
 
+from __future__ import annotations
+
 import os
 import gc
 import re
@@ -20,15 +22,29 @@ from pathlib import Path
 # pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 # pyrefly: ignore [missing-import]
+# pyrefly: ignore [missing-import]
 import soundfile as sf
 # pyrefly: ignore [missing-import]
 import numpy as np
-# pyrefly: ignore [missing-import]
-import torch
-# pyrefly: ignore [missing-import]
-import librosa
 
-from omnivoice import OmniVoice, VoiceClonePrompt
+# pyrefly: ignore [missing-import]
+try:
+    import torch
+except ImportError:
+    torch = None
+
+# pyrefly: ignore [missing-import]
+try:
+    import librosa
+except ImportError:
+    librosa = None
+
+try:
+    from omnivoice import OmniVoice, VoiceClonePrompt
+except ImportError:
+    OmniVoice = None
+    VoiceClonePrompt = None
+
 from audio_processor import enhance_vocal_audio
 
 # Tự động tải biến môi trường từ file .env
@@ -146,6 +162,10 @@ def load_model() -> None:
             )
         return
 
+    if torch is None or OmniVoice is None:
+        logger.info("ℹ️ Chạy ở chế độ Cloud Proxy (chưa cài đặt PyTorch/OmniVoice cục bộ). Mọi tác vụ sẽ gửi lên Cloud GPU.")
+        return
+
     # Xác định thiết bị tính toán cục bộ
     if OMNIVOICE_DEVICE == "cuda" and torch.cuda.is_available():
         device_map = "cuda:0"
@@ -187,9 +207,15 @@ def load_model() -> None:
     logger.info("✅ OmniVoice đã sẵn sàng phục vụ!")
 
 
-def get_model() -> OmniVoice:
+def get_model():
     """Trả về OmniVoice instance đã load. Tự động load nếu chưa khởi tạo."""
     global _model
+    if torch is None or OmniVoice is None:
+        raise RuntimeError(
+            "Mô hình AI cục bộ chưa được cài đặt trên máy. "
+            "Vui lòng vào Cài đặt và kích hoạt chế độ Điện toán Đám mây (Cloud GPU) "
+            "để sử dụng Hugging Face Spaces hoặc Google Colab!"
+        )
     if _model is None:
         logger.info("🔄 OmniVoice chưa tải hoặc đã bị offload, tiến hành nạp lại...")
         load_model()

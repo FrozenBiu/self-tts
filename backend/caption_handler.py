@@ -8,6 +8,8 @@ Xử lý toàn bộ logic cho tính năng Auto Kinetic Caption & Video Editing:
   4. Ghép phụ đề cứng và hòa âm nhạc nền (BGM) ra video MP4 thành phẩm qua FFmpeg.
 """
 
+from __future__ import annotations
+
 import os
 import re
 import logging
@@ -16,9 +18,16 @@ from pathlib import Path
 from typing import Any
 
 # pyrefly: ignore [missing-import]
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
+
 # pyrefly: ignore [missing-import]
-from faster_whisper import WhisperModel
+try:
+    from faster_whisper import WhisperModel
+except ImportError:
+    WhisperModel = None
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +44,13 @@ def get_whisper_model(model_size: str | None = None) -> WhisperModel:
     global _whisper_model, _current_model_size
 
     target_size = model_size or WHISPER_MODEL_SIZE
-    if _whisper_model is not None and _current_model_size == target_size:
-        return _whisper_model
+    if WhisperModel is None:
+        raise RuntimeError(
+            "Thư viện Faster-Whisper chưa được cài đặt trong môi trường này. "
+            "Vui lòng cài đặt faster-whisper hoặc sử dụng tính năng qua Cloud."
+        )
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if (torch is not None and torch.cuda.is_available()) else "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
 
     logger.info(

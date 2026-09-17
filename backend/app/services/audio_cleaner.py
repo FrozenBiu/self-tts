@@ -8,10 +8,22 @@ import gc
 from pathlib import Path
 from typing import Union
 import numpy as np
-import torch
-import librosa
 import soundfile as sf
-import noisereduce as nr
+
+try:
+    import torch
+except ImportError:
+    torch = None
+
+try:
+    import librosa
+except ImportError:
+    librosa = None
+
+try:
+    import noisereduce as nr
+except ImportError:
+    nr = None
 
 logger = logging.getLogger(__name__)
 

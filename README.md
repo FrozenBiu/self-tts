@@ -1,70 +1,113 @@
-# 🎙️ OmniVoice Studio - Ứng dụng Text-to-Speech Chuyên Nghiệp (24kHz)
+# 🎙️ OmniVoice Studio - Ứng dụng Text-to-Speech & Video Kinetic Chuyên Nghiệp (24kHz)
 
-Một ứng dụng Text-to-Speech đa ngôn ngữ cao cấp, được xây dựng dựa trên mô hình **OmniVoice** (k2-fsa), mang lại trải nghiệm tạo và quản lý âm thanh như một phòng thu (Studio) chuyên nghiệp. Hệ thống bao gồm Frontend giao diện hiện đại (React + Vite + Tailwind CSS + Sonner) và Backend AI mạnh mẽ (Python + FastAPI + OmniVoice Diffusion).
+Một giải pháp toàn diện cho việc tổng hợp giọng nói AI (Text-to-Speech), nhân bản giọng đọc (Voice Cloning), thiết kế giọng nói (Voice Design) và tự động tạo phụ đề video (Kinetic Karaoke Subtitles) chuẩn Studio 24kHz.
+
+Hệ thống được thiết kế linh hoạt với kiến trúc hiện đại:
+
+- **Frontend:** React + Vite + TypeScript + Tailwind CSS + Sonner + Lucide Icons.
+- **Backend:** Python + FastAPI + Uvicorn + Mô hình OmniVoice Diffusion (k2-fsa) + Whisper ASR + Motor Async MongoDB.
+- **Desktop Runtime:** Electron Native Desktop App + Windows Task Manager Branding + System Tray + Cầu nối IPC File Explorer.
+
+---
+
+## 🌟 3 Tùy Chọn Sử Dụng Linh Hoạt
+
+OmniVoice Studio hỗ trợ 3 hình thức sử dụng phù hợp với mọi nhu cầu:
+
+```
+                  ┌────────────────────────────────────────────────────────┐
+                  │                   OMNIVOICE STUDIO                     │
+                  └───────────────────────────┬────────────────────────────┘
+                                              │
+         ┌────────────────────────────────────┼────────────────────────────────────┐
+         ▼                                    ▼                                    ▼
+┌──────────────────┐               ┌───────────────────────┐            ┌──────────────────────┐
+│  TÙY CHỌN 1: WEB │               │  TÙY CHỌN 2: DESKTOP  │            │ TÙY CHỌN 3: BỘ CÀI   │
+│  Browser Mode    │               │  App Window Mode      │            │ Windows Setup (.exe) │
+├──────────────────┤               ├───────────────────────┤            ├──────────────────────┤
+│ - Chạy trên Chrome│              │ - Cửa sổ App độc lập  │            │ - File NSIS Setup    │
+│ - http://localhost│              │ - Custom TitleBar     │            │ - Cài đặt máy khác   │
+│ - Phù hợp dev FE │               │ - Ẩn scrollbar thừa   │            │ - Shortcut Desktop   │
+│                  │               │ - Mở thư mục & Play   │            │ - Tự tạo Start Menu  │
+├──────────────────┤               ├───────────────────────┤            ├──────────────────────┤
+│ ▶️ start_web.bat  │               │ ▶️ start_desktop.bat   │            │ ▶️ build_installer   │
+└──────────────────┘               └───────────────────────┘            └──────────────────────┘
+```
 
 ---
 
 ## ✨ Tính Năng Nổi Bật
 
-- 🎛️ **Phòng Thu Đa Chế Độ (Studio):**
-  - **Voice Cloning:** Sao chép giọng từ mẫu hệ thống hoặc giọng cá nhân, tự động lưu và tái sử dụng bộ đệm embedding `.pt` (khởi tạo 0ms).
-  - **Voice Design:** Tự thiết kế giọng nói qua mô tả đặc tính hoặc chọn nhanh từ bộ mẫu gợi ý sẵn (`instruct`: phong cách, giới tính, độ tuổi, tông giọng, thì thầm, v.v.) với giọng đọc đồng nhất xuyên suốt đoạn văn.
-  - **Thanh công cụ cảm xúc phi ngôn ngữ (Non-verbal symbols):** Chèn nhanh thẻ biểu cảm như `[laughter]`, `[sigh]`, `[surprise-ah]`, `[surprise-oh]`, `[dissatisfaction-hnn]`, `[question-ah]` vào văn bản.
-  - **Lưu Cấu Hình Mặc Định:** Nút **Lưu cấu hình** giúp ghi nhớ các thông số mô hình hay dùng (CFG, Tốc độ, Cao độ, Định dạng) cho các phiên làm việc sau.
-  - **Chất lượng Studio 24,000 Hz:** Âm thanh đầu ra trong trẻo, chi tiết cao, hỗ trợ xuất `.mp3` và `.wav`.
-- 🎲 **Tạo Giọng Random & Sao Chép Giọng (Cloning Voice):**
-  - **Tạo giọng Random:** Tự sinh các giọng nói ngẫu nhiên mới lạ, nghe thử trực tiếp, nếu ưng ý có thể lưu lại vào danh sách giọng để sử dụng lâu dài, hoặc hủy bỏ nhanh chóng.
-  - **Sao chép giọng (Clone Voice):** Tải file hoặc thu âm trực tiếp (3 - 15 giây).
-  - **Bóc băng tự động:** Tùy chọn nhập transcript hoặc để trống, hệ thống sẽ tự động dùng Whisper ASR để trích xuất văn bản và lưu prompt `.pt`.
-- 📁 **Quản Lý Dự Án (Projects):** Gom nhóm các file âm thanh theo từng dự án riêng biệt (Podcast, Audiobook, Video quảng cáo, v.v.).
-- 🎧 **Thư Viện (Library):** Lưu trữ toàn bộ lịch sử tạo âm thanh, nghe lại, tải xuống nhanh chóng, sao chép văn bản và quản lý danh mục.
-- 🖥️ **Tiện Ích Khởi Chạy 1-Click & System Tray:**
-  - **File `start.bat`:** Tự động khởi chạy cả Backend, Frontend và tự động mở trình duyệt ngay khi mô hình AI nạp xong.
-  - **Thu nhỏ xuống khay hệ thống (Hide to Tray):** Khi bấm nút thu nhỏ (`_`) trên Terminal, cửa sổ sẽ tự động ẩn xuống System Tray (khay đồng hồ) giúp màn hình làm việc luôn gọn gàng. Click đúp vào icon để mở lại bất cứ lúc nào.
-  - **Icon ứng dụng & Shortcut Desktop:** Tự động tạo Shortcut `OmniVoice TTS` ngoài màn hình Desktop với biểu tượng App chuyên nghiệp.
-- ⚡ **Tối Ưu Hiệu Suất:**
-  - Tốc độ suy luận Diffusion siêu tốc (RTF ~0.025, nhanh gấp ~40 lần real-time trên GPU).
-  - Tích hợp bộ đệm (Cache Hit) ở backend giúp trả về âm thanh ngay lập tức (0ms) cho các yêu cầu trùng lặp.
+### 1. 🎛️ Phòng Thu Đa Chế Độ (Studio)
+
+- **Voice Cloning:** Sao chép giọng từ mẫu có sẵn hoặc file ghi âm cá nhân, tự động trích xuất embedding `.pt` (suy luận 0ms với bộ đệm cache).
+- **Voice Design:** Tự thiết kế giọng đọc qua câu lệnh mô tả tự nhiên (`instruct`: giới tính, tuổi tác, phong cách, thì thầm, kịch tính, v.v.).
+- **Thanh công cụ biểu cảm phi ngôn ngữ (Non-verbal expressions):** Chèn nhanh các cảm xúc tự nhiên vào câu thoại như `[laughter]`, `[sigh]`, `[surprise-ah]`, `[dissatisfaction-hnn]`, `[question-ah]`.
+- **Chất lượng âm thanh 24,000 Hz:** Âm thanh trong trẻo, chi tiết cao, hỗ trợ xuất `.mp3` và `.wav`.
+- **Lồng nhạc nền DSP Sidechain (Auto-Ducking):** Tự động giảm âm lượng nhạc nền khi có tiếng nói và đẩy nhạc lên ở các đoạn nghỉ.
+
+### 2. 🎬 Tạo Video Phụ Đề Động (Auto Caption - Kinetic Karaoke)
+
+- Tải lên video bài giảng, podcast, tiktok hoặc reels.
+- Tự động tách âm thanh, nhận diện lời thoại từng từ (Word-level Timestamps) với Whisper AI.
+- Tạo phụ đề chuyển động Kinetic Karaoke mượt mà, hỗ trợ font chữ tùy biến (.ttf, .otf), căn chỉnh vị trí trực tiếp trên màn hình preview.
+- Cắt bỏ khoảng lặng thừa (Trim Silences) tự động bằng FFmpeg.
+- **Xuất video HD 1080p:** Render phụ đề cứng vào video với tốc độ cao.
+
+### 3. 🎲 Tạo Giọng Mới & Nhân Bản (Cloning Voice)
+
+- **Tạo giọng ngẫu nhiên (Random Voice):** Tự sinh giọng nói độc đáo qua thuật toán Diffusion, nghe thử và lưu vào danh sách giọng sử dụng lâu dài.
+- **Clone giọng 1-Click:** Tải lên tệp âm thanh 3 - 15 giây, Whisper tự động bóc băng phụ đề đối chiếu để sinh embedding chuẩn xác.
+
+### 4. 📁 Quản Lý Dự Án & Thư Viện (Projects & Library)
+
+- Gom nhóm các đoạn hội thoại, phân cảnh theo từng dự án riêng biệt.
+- Ghép nối hàng loạt phân đoạn âm thanh thành 1 file Master duy nhất kèm phụ đề `.srt` đồng bộ.
+- Lưu trữ lịch sử toàn bộ các lần tạo âm thanh, hỗ trợ tìm kiếm, nghe lại và tải về tức thì.
+
+### 5. ⚙️ Bảng Điều Khiển Cài Đặt Tập Trung (Settings)
+
+- Quản lý và kiểm tra kết nối **Cloud GPU (Hugging Face / Google Colab)** chỉ bằng 1 nút bấm.
+- Tùy chỉnh số bước khử nhiễu Diffusion Steps (mặc định 32, tối đa 100).
+- Cấu hình thư mục lưu trữ tùy biến cho **Âm thanh** và **Video** trên máy tính.
+- Quản lý đồng bộ dữ liệu đám mây: **MongoDB Atlas** và **Cloudflare R2 Storage**.
 
 ---
 
-## 🛠️ Yêu Cầu Hệ Thống
+## 🛠️ Yêu Cầu Hệ Thống & Cài Đặt Ban Đầu
 
-Trước khi bắt đầu, đảm bảo máy tính của bạn đã cài đặt:
+### 1. Phần mềm cần có trên máy:
 
-- **Python 3.10+** (khuyên dùng Python 3.10 hoặc 3.11).
-- **Node.js v18+**.
-- **pnpm** (Trình quản lý gói cho Node.js). Cài đặt nhanh: `npm install -g pnpm`.
-- **FFmpeg** (Bắt buộc để xử lý âm thanh ở Backend).
-  - **Cài đặt nhanh trên Windows:** Mở terminal (với quyền Admin nếu cần) và chạy: `winget install Gyan.FFmpeg` (hoặc `winget install ffmpeg`).
-  - Sau khi cài đặt xong, hãy **khởi động lại máy tính** hoặc **khởi động lại Terminal/VSCode** để hệ thống nhận diện biến môi trường PATH của FFmpeg.
+- **Hệ điều hành:** Windows 10/11 (khuyên dùng 64-bit).
+- **Python:** Phiên bản 3.10 hoặc 3.11 ([Tải Python](https://www.python.org/downloads/)).
+- **Node.js:** Phiên bản 18+ ([Tải Node.js](https://nodejs.org/)).
+- **pnpm:** Trình quản lý gói hiện đại (`npm install -g pnpm`).
+- **FFmpeg:** Bắt buộc để xử lý âm thanh & render video.
+  - _Cài đặt nhanh trên Windows:_ Mở Terminal/PowerShell và gõ:
+    ```powershell
+    winget install Gyan.FFmpeg
+    ```
+  - Khởi động lại terminal sau khi cài để nhận lệnh `ffmpeg`.
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt
+### 2. Cài đặt mã nguồn dự án:
 
-### 1. Cài đặt Backend (Python)
+Mở PowerShell tại thư mục gốc của dự án và chạy:
 
-Mở terminal và thực hiện các bước sau:
+#### Bước A: Cài đặt Backend (Python)
 
-```bash
-# Di chuyển vào thư mục backend
+```powershell
 cd backend
-
-# Tạo môi trường ảo (Virtual Environment)
 python -m venv venv
-
-# Kích hoạt môi trường ảo (Windows)
-# Powershell
 .\venv\Scripts\activate
 # Git bash
 source venv/Scripts/activate
 
-# Cài đặt PyTorch hỗ trợ CUDA 12.4 (Quan trọng cho máy có card NVIDIA)
-# Lưu ý: Chạy lệnh này TRƯỚC để tải bản GPU, tránh tải nhầm bản CPU
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --upgrade --force-reinstall
+# Nếu máy có card đồ họa NVIDIA (khuyên dùng):
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
-# Cài đặt các thư viện cần thiết
+# Cài đặt các thư viện cần thiết:
 pip install -r requirements.txt
 # python -m pip install -r requirements.txt
 
@@ -72,109 +115,129 @@ pip install -r requirements.txt
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 2. Cài đặt Frontend (React + Vite)
+#### Bước B: Cài đặt Frontend (React)
 
-Mở terminal tại thư mục dự án và thực hiện:
-
-```bash
-# Di chuyển vào thư mục frontend
+```powershell
+# Cài đặt dependencies cho frontend và electron
+pnpm install
 cd frontend
-
-# Cài đặt các gói phụ thuộc bằng pnpm
 pnpm install
 ```
 
 ---
 
-## 🌐 Tăng Tốc Bằng Cloud GPU Từ Xa (Hugging Face Spaces A100 / Google Colab T4)
+## 🚀 Hướng Dẫn Khởi Chạy
 
-Nếu máy tính của bạn **không có card đồ hoạ rời (VGA)** hoặc chỉ có CPU, việc sinh âm thanh cho văn bản dài hàng nghìn từ sẽ rất lâu. Bạn có thể uỷ quyền xử lý toàn bộ thuật toán OmniVoice sang Cloud GPU miễn phí:
+### 🌐 Tùy Chọn 1: Chế Độ Web (Web Browser Mode)
 
-### 🌟 Tùy chọn 1: Hugging Face Spaces (ZeroGPU A100/A10G) — Khuyên Dùng (Chạy 24/7, Không Cần Treo Tab)
+Dành cho người dùng muốn làm việc trực tiếp trên trình duyệt web (Google Chrome, Microsoft Edge, Brave...):
+
+- **Cách 1 (1-Click - Khuyên dùng):**
+  Click đúp vào file **`start_web.bat`** (hoặc `start.bat`) tại thư mục gốc.
+  Hệ thống sẽ khởi động cả Backend và Frontend, tự động mở trình duyệt tại:
+  👉 **`http://localhost:5173`**
+- **Cách 2 (Khởi chạy bằng lệnh):**
+
+  ```powershell
+  # Terminal 1: Backend
+  cd backend
+  .\venv\Scripts\activate
+  python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+
+  # Terminal 2: Frontend
+  cd frontend
+  pnpm dev
+  ```
+
+---
+
+### 💻 Tùy Chọn 2: Chế Độ Desktop App (Native Desktop Mode)
+
+Dành cho trải nghiệm ứng dụng máy tính độc lập cao cấp:
+
+- **Cách 1 (1-Click - Khuyên dùng):**
+  Click đúp vào file **`start_desktop.bat`** hoặc biểu tượng **`OmniVoice TTS`** ngoài màn hình Desktop.
+- **Cách 2 (Khởi chạy bằng lệnh):**
+  ```powershell
+  pnpm run desktop:start
+  ```
+- **Ưu điểm vượt trội của bản Desktop:**
+  - Cửa sổ ứng dụng độc lập, không viền trình duyệt thừa, có thanh tiêu đề tùy biến sang trọng.
+  - Tự động ẩn thanh scrollbar toàn hệ thống, tự động co giãn layout responsive.
+  - **Cơ chế tải file thông minh:** Khi bấm **Xuất Video** hoặc **Tải về Audio**, hệ thống lưu trực tiếp vào máy tính và hiển thị popup:
+    - **"📁 Mở thư mục"**: Bật File Explorer và tự động bôi sáng đúng tệp vừa xuất.
+    - **"🎬 Xem / Nghe ngay"**: Mở file trực tiếp bằng trình phát mặc định của Windows.
+  - Hiển thị nhận diện chính xác **`OmniVoice Studio`** và logo app trong **Windows Task Manager**.
+
+---
+
+### 📦 Tùy Chọn 3: Đóng Gói Thành File Cài Đặt Windows (.exe Installer)
+
+Dành cho người muốn đóng gói ứng dụng thành file cài đặt độc lập để lưu trữ hoặc chia sẻ cho máy khác:
+
+- **Cách 1 (1-Click):**
+  Click đúp vào file **`build_installer.bat`** tại thư mục gốc.
+- **Cách 2 (Chạy bằng lệnh pnpm):**
+  ```powershell
+  pnpm run desktop:build
+  ```
+- **Kết quả đầu ra:**
+  Tệp cài đặt chuẩn NSIS sẽ được tạo tại thư mục **`release/`**:
+  📁 **`release/OmniVoice Studio Setup 1.0.0.exe`** (~250 MB)
+  - 🌟 **Tích hợp sẵn Python Portable:** Người nhận **không cần cài Python hay Node.js**, cài là chạy ngay 100%!
+  - 🌐 **Hỗ trợ Cloud GPU 1-Click:** Chỉ cần mở app, vào mục **Cài đặt** dán link Hugging Face hoặc Google Colab vào là tạo giọng AI siêu tốc (ZeroGPU A100).
+  - Hỗ trợ chọn thư mục cài đặt (`allowToChangeInstallationDirectory: true`).
+  - Tự động tạo Shortcut ngoài màn hình Desktop và trong Start Menu với logo thương hiệu chuẩn.
+  - Tích hợp trình gỡ cài đặt (Uninstaller) an toàn.
+
+---
+
+## ⚡ Cấu Hình Cloud GPU Miễn Phí (Khuyên Dùng)
+
+Nếu máy tính của bạn không có card đồ họa rời (VGA NVIDIA) hoặc cấu hình yếu, bạn có thể chuyển toàn bộ tác vụ tính toán AI sang Cloud GPU miễn phí để tạo giọng đọc trong 1-2 giây:
+
+### 🌟 Hugging Face Spaces (ZeroGPU A100) — Hoạt động 24/7
+
 1. Tạo một Space mới trên [Hugging Face Spaces](https://huggingface.co/spaces) (chọn SDK **Gradio**, phần cứng **ZeroGPU**).
-2. Upload các file trong thư mục `hf_space/` (`app.py`, `requirements.txt`, `README.md`) lên Space.
-3. Khi Space hiển thị **Running**, copy link Direct URL (dạng `https://<tên-bạn>-<tên-space>.hf.space`).
-4. Cấu hình file `backend/.env`:
-   ```env
-   USE_REMOTE_GPU=true
-   REMOTE_GPU_URL=https://<tên-bạn>-<tên-space>.hf.space
-   ```
-
-### ☕ Tùy chọn 2: Google Colab GPU T4 (NVIDIA Tesla T4 16GB)
-Mở file [`notebooks/OmniVoice_Colab_T4.ipynb`](file:///d:/Coding/VSCode/self-tts/notebooks/OmniVoice_Colab_T4.ipynb) trên [Google Colab](https://colab.research.google.com/) và vào `Runtime` ➔ `Change runtime type` ➔ Chọn **T4 GPU**.
-
-#### 🌟 Cách 1: Kết nối cố định vĩnh viễn với Ngrok Static Domain (Khuyên dùng - Điền 1 lần dùng mãi mãi)
-1. Đăng ký tài khoản miễn phí tại [dashboard.ngrok.com](https://dashboard.ngrok.com/) (đăng nhập bằng Google trong 10 giây).
-2. Lấy **Authtoken** tại mục [Your Authtoken](https://dashboard.ngrok.com/get-started/your-authtoken).
-3. Bấm nhận **1 Domain tĩnh miễn phí** tại mục [Cloud Edge ➔ Domains](https://dashboard.ngrok.com/cloud-edge/domains) (ví dụ: `my-colab-tts.ngrok-free.app`).
-4. Điền cố định vào `backend/.env` trên máy bạn (**chỉ làm 1 lần duy nhất**):
-   ```env
-   USE_REMOTE_GPU=true
-   REMOTE_GPU_URL=https://my-colab-tts.ngrok-free.app
-   ```
-5. Trên Google Colab: Nhập `NGROK_AUTHTOKEN` và `NGROK_STATIC_DOMAIN` vào form ô chạy rồi bấm **Play (▶️)**.
-   👉 **Từ nay về sau:** Mỗi lần mở Colab chỉ cần bấm **Play**, web tự động kết nối ngay mà **không bao giờ phải sửa file `.env` nữa!**
-
-#### 🌐 Cách 2: Kết nối ngẫu nhiên qua Cloudflare Tunnel (Không cần đăng ký)
-- Trên Colab, chọn `TUNNEL_METHOD = "cloudflare"` rồi bấm **Play (▶️)**.
-- Sau khi chạy xong, copy URL dạng `https://xxxx.trycloudflare.com` dán vào `REMOTE_GPU_URL` trong file `backend/.env`.
+2. Tải toàn bộ các file trong thư mục `hf_space/` lên Space của bạn.
+3. Khi Space hiển thị trạng thái **Running**, sao chép Direct URL (dạng `https://<ten-ban>-<ten-space>.hf.space`).
+4. Vào ứng dụng OmniVoice Studio ➔ Bấm vào **Cài đặt (Settings)** ở góc dưới bên trái ➔ Dán URL vào ô **Cloud GPU URL** ➔ Bấm **Kiểm tra kết nối** và **Lưu cấu hình**.
 
 ---
 
-## ⚡ Khởi Chạy Nhanh 1-Click (Khuyên Dùng)
-
-Sau khi hoàn tất cài đặt lần đầu, bạn chỉ cần:
-
-1. **Khởi động ứng dụng:**
-   - Click đúp vào file **`start.bat`** tại thư mục gốc của dự án (hoặc click vào shortcut **`OmniVoice TTS`** ngoài màn hình Desktop).
-   - Hệ thống sẽ tự khởi động Backend & Frontend trên cùng một màn hình điều khiển, đồng thời **tự động mở trình duyệt** `http://localhost:5173` ngay khi mô hình AI nạp xong vào RAM/VRAM.
-2. **Thu nhỏ xuống khay hệ thống:**
-   - Nhấn nút thu nhỏ (`_`) trên cửa sổ Terminal, ứng dụng sẽ ẩn vào khay hệ thống cạnh đồng hồ.
-   - Click đúp vào icon để mở lại cửa sổ, hoặc click chuột phải để truy cập menu tiện ích.
-3. **Tạo lại Shortcut Desktop (nếu cần):**
-   - Click đúp vào file **`create_shortcut.bat`** để tạo ngay shortcut app ngoài Desktop với icon chuyên nghiệp.
-
----
-
-## 📖 Hướng Dẫn Sử Dụng Chi Tiết
-
-1. **Sử Dụng Phòng Thu (Studio):**
-   - Chọn chế độ: **Voice Cloning** (theo mẫu có sẵn hoặc giọng clone) hoặc **Voice Design** (thiết kế phong cách giọng nói qua mô tả).
-   - Nhập đoạn văn bản cần đọc, có thể chèn nhanh các biểu cảm phi ngôn ngữ (`[laughter]`, `[sigh]`, v.v.).
-   - Điều chỉnh các thông số: Hướng dẫn (CFG), Số bước khuếch tán (Steps), Tốc độ, Cao độ và Định dạng (.mp3 / .wav).
-   - Bấm **Lưu cấu hình** để lưu lại các thông số hay dùng làm mặc định.
-   - Bấm **Bắt đầu tổng hợp** để tạo giọng đọc.
-2. **Trang Nhân Bản & Tạo Giọng (Cloning Voice):**
-   - **Tạo giọng ngẫu nhiên:** Nhấn `Tạo thử giọng mới`, nghe thử mẫu phát âm sinh ngẫu nhiên. Nếu thích, bấm `Lưu vào danh sách giọng` để dùng vĩnh viễn; nếu không thích, bấm `Hủy / Xóa`.
-   - **Clone giọng từ file âm thanh:** Tải lên file ghi âm mẫu (3 - 15 giây), hệ thống tự động bóc băng qua Whisper ASR và tạo embedding `.pt` tối ưu.
-3. **Quản Lý Dự Án (Projects) & Thư Viện (Library):**
-   - Tạo các thư mục dự án (Podcast, Audiobook, Video...) để phân loại.
-   - Thư viện tự động lưu trữ toàn bộ các file đã tạo, hỗ trợ nghe lại, đổi dự án và tải xuống tức thì.
-
----
-
-## 🏗️ Cấu Trúc Mã Nguồn
+## 📁 Cấu Trúc Mã Nguồn
 
 ```text
-├── assets/                 # Icon ứng dụng (app.ico, app.png)
-├── backend/                # Server Python FastAPI & Mô hình OmniVoice AI
-│   ├── main.py             # Entrypoint FastAPI REST API
-│   ├── model_handler.py    # Xử lý suy luận TTS, cache embedding .pt, Whisper ASR
-│   ├── presets/            # Giọng mẫu hệ thống và giọng người dùng tạo
-│   ├── outputs/            # File âm thanh kết quả (.mp3, .wav)
-│   └── requirements.txt    # Danh sách thư viện Python
-├── frontend/               # Giao diện React + Vite + Tailwind CSS + Sonner
-│   ├── src/pages/          # Các trang (Studio, Library, Projects, CloningVoice)
-│   ├── src/store/          # Zustand State Management (useTTSStore.ts)
-│   └── src/components/     # UI components (Header, Sidebar, Player, v.v.)
-├── scripts/                # Scripts tiện ích
-│   ├── tray_manager.ps1    # Quản lý ẩn khay hệ thống (System Tray) & auto-open
-│   ├── create_desktop_shortcut.ps1 # Tạo shortcut ngoài Desktop với app icon
-│   └── generate_icon.py    # Script sinh icon ứng dụng chuẩn đa kích thước
-├── start.bat               # Trình khởi chạy 1-click toàn bộ hệ thống
-└── create_shortcut.bat     # Trình tạo shortcut Desktop 1-click
+├── assets/                     # Biểu tượng ứng dụng (app.ico, app.png)
+├── backend/                    # Server Python FastAPI & Thuật toán OmniVoice AI
+│   ├── app/                    # Mã nguồn backend module hóa
+│   │   ├── core/config.py      # Cấu hình biến môi trường & thư mục lưu trữ
+│   │   ├── routers/            # Các API endpoints (TTS, Caption, Settings, Sync...)
+│   │   └── services/           # Xử lý sinh âm thanh, cắt gọt video FFmpeg
+│   ├── main.py                 # Điểm khởi chạy FastAPI
+│   ├── requirements.txt        # Danh sách thư viện Python
+│   └── .env                    # File cấu hình biến môi trường
+├── electron/                   # Mã nguồn ứng dụng Desktop Electron
+│   ├── main.cjs                # Quản lý vòng đời Desktop, cửa sổ & tiến trình nền
+│   ├── preload.cjs             # Cầu nối IPC bảo mật Context Isolation
+│   ├── start.cjs               # Trình khởi chạy OmniVoice Studio.exe
+│   └── customize-exe.cjs       # Trình nhúng icon và metadata PE vào file .exe
+├── frontend/                   # Ứng dụng giao diện React + Vite + TypeScript
+│   ├── src/pages/              # Studio, AutoCaption, Library, Projects, Settings
+│   ├── src/components/         # Components UI hiện đại (Shadcn UI, CustomTitleBar...)
+│   └── src/store/              # Zustand State Stores
+├── scripts/                    # Các kịch bản tự động hóa
+│   ├── create_desktop_shortcut.ps1 # Tạo shortcut Desktop native
+│   └── tray_manager.ps1        # Tiện ích quản lý khay hệ thống Windows
+├── start_web.bat               # Khởi chạy 1-click bản Web Browser
+├── start_desktop.bat           # Khởi chạy 1-click bản Desktop App
+├── build_installer.bat         # Đóng gói 1-click thành file Setup .exe
+└── package.json                # Cấu hình dự án, scripts & electron-builder
 ```
 
 ---
 
-_Phát triển bởi đội ngũ đam mê AI._
+## 📄 Bản Quyền & Giấy Phép
+
+Dự án được phát triển dựa trên mô hình OmniVoice mã nguồn mở theo giấy phép **AGPL-3.0**.
+Mọi thắc mắc hoặc đóng góp vui lòng mở Issue hoặc Pull Request trên repository.

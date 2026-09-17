@@ -8,7 +8,6 @@ import asyncio
 from pathlib import Path
 from fastapi import HTTPException, UploadFile, BackgroundTasks
 
-import librosa
 import soundfile as sf
 import numpy as np
 
