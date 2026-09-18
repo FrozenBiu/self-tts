@@ -128,7 +128,7 @@ async def transcribe_video(
 
         return {
             "session_id": session_id,
-            "video_url": f"http://localhost:8000/outputs/captions/{session_id}/video_raw{video_suffix}",
+            "video_url": f"http://127.0.0.1:8000/outputs/captions/{session_id}/video_raw{video_suffix}",
             "filename": video.filename,
             "segments": segments,
         }
@@ -157,7 +157,7 @@ async def upload_bgm(
 
         return {
             "session_id": session_id,
-            "bgm_url": f"http://localhost:8000/outputs/captions/{session_id}/bgm{bgm_suffix}",
+            "bgm_url": f"http://127.0.0.1:8000/outputs/captions/{session_id}/bgm{bgm_suffix}",
             "bgm_filename": bgm.filename,
         }
     except Exception as exc:
@@ -253,7 +253,7 @@ async def attach_voiceover(
         return {
             "session_id": session_id,
             "status": "success",
-            "voiceover_url": f"http://localhost:8000/outputs/captions/{session_id}/voiceover.wav",
+            "voiceover_url": f"http://127.0.0.1:8000/outputs/captions/{session_id}/voiceover.wav",
             "segments": segments,
         }
     except Exception as exc:
@@ -373,7 +373,7 @@ async def export_captioned_video(request: ExportCaptionRequest):
 
         return {
             "status": "success",
-            "download_url": f"http://localhost:8000/api/caption/download/{request.session_id}",
+            "download_url": f"http://127.0.0.1:8000/api/caption/download/{request.session_id}",
             "filename": final_filename,
             "file_path": str(actual_file_path.resolve()),
             "dir_path": str(actual_file_path.parent.resolve()),
@@ -405,10 +405,10 @@ async def check_caption_session(session_id: str):
     return {
         "exists": True,
         "session_id": safe_id,
-        "video_url": f"http://localhost:8000/outputs/captions/{safe_id}/{video_file.name}",
+        "video_url": f"http://127.0.0.1:8000/outputs/captions/{safe_id}/{video_file.name}",
         "filename": video_file.name,
         "has_output": output_final.exists(),
-        "download_url": f"http://localhost:8000/api/caption/download/{safe_id}" if output_final.exists() else None,
+        "download_url": f"http://127.0.0.1:8000/api/caption/download/{safe_id}" if output_final.exists() else None,
     }
 
 

@@ -271,7 +271,7 @@ export default function AutoCaption() {
       if (!draft.sessionId) return;
 
       // Kiểm tra session còn tồn tại trên server không
-      fetch(`http://localhost:8000/api/caption/session/${draft.sessionId}/check`)
+      fetch(`http://127.0.0.1:8000/api/caption/session/${draft.sessionId}/check`)
         .then((res) => res.json())
         .then((data) => {
           if (data && data.exists) {
@@ -313,7 +313,7 @@ export default function AutoCaption() {
     localStorage.removeItem(DRAFT_STORAGE_KEY);
 
     if (currentId) {
-      fetch(`http://localhost:8000/api/caption/session/${currentId}`, {
+      fetch(`http://127.0.0.1:8000/api/caption/session/${currentId}`, {
         method: "DELETE",
       }).catch(() => {});
     }
@@ -331,7 +331,7 @@ export default function AutoCaption() {
     }
 
     if (sessionId) {
-      fetch(`http://localhost:8000/api/caption/session/${sessionId}`, {
+      fetch(`http://127.0.0.1:8000/api/caption/session/${sessionId}`, {
         method: "DELETE",
       }).catch(() => {});
     }
@@ -369,7 +369,7 @@ export default function AutoCaption() {
       });
 
       const response = await fetch(
-        "http://localhost:8000/api/caption/transcribe",
+        "http://127.0.0.1:8000/api/caption/transcribe",
         {
           method: "POST",
           body: formData,
@@ -383,8 +383,9 @@ export default function AutoCaption() {
 
       const data = await response.json();
       setSessionId(data.session_id);
-      if (data.video_url) {
-        setVideoUrl(data.video_url);
+      // Giữ nguyên local blob URL của video nếu người dùng đang mở file trực tiếp (tránh bị đen màn hình)
+      if (!videoUrl && data.video_url) {
+        setVideoUrl(data.video_url.replace("localhost:8000", "127.0.0.1:8000"));
       }
       setSegments(data.segments || []);
       setRawSegments(data.segments || []);
@@ -422,7 +423,7 @@ export default function AutoCaption() {
     setIsAligningScript(true);
     try {
       const response = await fetch(
-        "http://localhost:8000/api/caption/align-script",
+        "http://127.0.0.1:8000/api/caption/align-script",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -464,7 +465,7 @@ export default function AutoCaption() {
     setIsOptimizingChunks(true);
     try {
       const response = await fetch(
-        "http://localhost:8000/api/caption/optimize-chunks",
+        "http://127.0.0.1:8000/api/caption/optimize-chunks",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -507,7 +508,7 @@ export default function AutoCaption() {
     if (sessionId) {
       try {
         const res = await fetch(
-          `http://localhost:8000/api/caption/session/${sessionId}/restore-raw`,
+          `http://127.0.0.1:8000/api/caption/session/${sessionId}/restore-raw`,
         );
         if (res.ok) {
           const data = await res.json();
@@ -738,7 +739,7 @@ export default function AutoCaption() {
         const formData = new FormData();
         formData.append("font", file);
         formData.append("session_id", sessionId);
-        await fetch("http://localhost:8000/api/caption/upload-font", {
+        await fetch("http://127.0.0.1:8000/api/caption/upload-font", {
           method: "POST",
           body: formData,
         });
@@ -880,7 +881,7 @@ export default function AutoCaption() {
         duration: 12000,
       });
 
-      const response = await fetch("http://localhost:8000/api/caption/export", {
+      const response = await fetch("http://127.0.0.1:8000/api/caption/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
