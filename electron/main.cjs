@@ -11,7 +11,6 @@ const {
 const path = require("path");
 const { spawn } = require("child_process");
 const http = require("http");
-const kill = require("tree-kill");
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 const ROOT_DIR = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
@@ -140,14 +139,14 @@ function startBackend() {
 // ── 3. Dừng Backend an toàn ──────────────────────────────────────────────────
 function stopBackend() {
   if (pythonProcess && pythonProcess.pid) {
-    console.log(
-      `[Electron] Dọn dẹp tiến trình Python Backend PID: ${pythonProcess.pid}...`,
-    );
+    const pid = pythonProcess.pid;
+    console.log(`[Electron] Dọn dẹp tiến trình Python Backend PID: ${pid}...`);
     try {
-      kill(pythonProcess.pid, "SIGKILL", (err) => {
-        if (err)
-          console.error("[Electron] Lỗi khi dọn dẹp tiến trình Python:", err);
-      });
+      if (process.platform === "win32") {
+        spawn("taskkill", ["/pid", pid.toString(), "/T", "/F"]);
+      } else {
+        pythonProcess.kill("SIGKILL");
+      }
     } catch (e) {
       console.error("[Electron] Exception khi dọn dẹp:", e);
     }

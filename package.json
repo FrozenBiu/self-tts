@@ -55,7 +55,7 @@
     ],
     "win": {
       "icon": "assets/app.ico",
-      "signAndEditExecutable": false,
+      "signExecutable": false,
       "target": [
         "nsis"
       ]

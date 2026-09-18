@@ -6,6 +6,7 @@ const ROOT_DIR = path.resolve(__dirname, "..");
 const ELECTRON_DIST = path.join(ROOT_DIR, "node_modules", "electron", "dist");
 const ELECTRON_EXE = path.join(ELECTRON_DIST, "electron.exe");
 const CUSTOM_EXE = path.join(ELECTRON_DIST, "OmniVoice Studio.exe");
+const UNPACKED_EXE = path.join(ROOT_DIR, "release", "win-unpacked", "OmniVoice Studio.exe");
 const ICON_PATH = path.join(ROOT_DIR, "assets", "app.ico");
 const RCEDIT_EXE = path.join(ROOT_DIR, "node_modules", "rcedit", "bin", "rcedit-x64.exe");
 
@@ -26,7 +27,7 @@ async function customize() {
     fs.copyFileSync(ELECTRON_EXE, CUSTOM_EXE);
   }
 
-  const targets = [CUSTOM_EXE, ELECTRON_EXE].filter((p) => fs.existsSync(p));
+  const targets = [CUSTOM_EXE, ELECTRON_EXE, UNPACKED_EXE].filter((p) => fs.existsSync(p));
 
   for (const target of targets) {
     console.log(`[Setup] Đang cập nhật metadata & icon cho: ${path.basename(target)}...`);
