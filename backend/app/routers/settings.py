@@ -23,7 +23,8 @@ from app.core.config import (
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-ENV_FILE_PATH = BASE_DIR / ".env"
+_env_path_str = os.getenv("ENV_FILE_PATH", "").strip()
+ENV_FILE_PATH = Path(_env_path_str) if _env_path_str else (BASE_DIR / ".env")
 
 
 class SettingsPayload(BaseModel):

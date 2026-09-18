@@ -51,6 +51,10 @@
       {
         "from": "python_runtime",
         "to": "python"
+      },
+      {
+        "from": "frontend/dist",
+        "to": "frontend/dist"
       }
     ],
     "win": {

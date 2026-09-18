@@ -36,6 +36,9 @@ const USER_DATA_DIR = app.getPath("userData");
 const ENV_PATH = app.isPackaged
   ? path.join(USER_DATA_DIR, ".env")
   : path.join(BACKEND_DIR, ".env");
+const OUTPUTS_DIR = app.isPackaged
+  ? path.join(USER_DATA_DIR, "outputs")
+  : path.join(BACKEND_DIR, "outputs");
 
 // Tự động khởi tạo .env trong userData nếu chưa có (khi chạy từ bộ cài đặt)
 if (app.isPackaged) {
@@ -116,6 +119,7 @@ function startBackend() {
         PYTHONIOENCODING: "utf-8",
         PYTHONPATH: BACKEND_DIR,
         ENV_FILE_PATH: ENV_PATH,
+        USER_DATA_DIR: USER_DATA_DIR,
       },
     },
   );
@@ -219,9 +223,15 @@ function createMainWindow() {
     mainWindow?.webContents.send("window-maximized-change", false);
   });
 
-  // Tải nội dung giao diện
+  // Tải nội dung giao diện:
+  // Khi đóng gói (app.isPackaged), frontend/dist nằm trong app.asar (cùng cấp cha với file main.cjs trong electron/)
+  // Khi chạy dev, __dirname là .../electron, cấp cha là thư mục gốc dự án chứa frontend/dist/index.html
   const fs = require("fs");
-  const distIndexPath = path.join(ROOT_DIR, "frontend", "dist", "index.html");
+  const distIndexPath = path.join(__dirname, "..", "frontend", "dist", "index.html");
+  const altDistPath = path.join(process.resourcesPath, "frontend", "dist", "index.html");
+  const finalIndexPath = fs.existsSync(distIndexPath)
+    ? distIndexPath
+    : (fs.existsSync(altDistPath) ? altDistPath : null);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -236,15 +246,30 @@ function createMainWindow() {
       });
     };
     loadDev();
-  } else if (fs.existsSync(distIndexPath)) {
-    console.log("[Electron] Nạp giao diện tối ưu từ frontend/dist/index.html");
-    mainWindow.loadFile(distIndexPath);
+  } else if (finalIndexPath) {
+    console.log("[Electron] Nạp giao diện tối ưu từ:", finalIndexPath);
+    mainWindow.loadFile(finalIndexPath);
   } else {
     mainWindow.loadURL("http://127.0.0.1:5173");
   }
 
+  // Đảm bảo cửa sổ chắc chắn hiển thị sau tối đa 3.5s kể cả khi sự kiện ready-to-show bị chậm
+  const fallbackShowTimer = setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      console.log("[Electron] Kích hoạt hiển thị dự phòng cho cửa sổ chính...");
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.destroy();
+        splashWindow = null;
+      }
+      mainWindow.maximize();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  }, 3500);
+
   // Khi trang đã sẵn sàng thì đóng splash, phóng to cửa sổ và ép nổi lên trên cùng
   mainWindow.once("ready-to-show", () => {
+    clearTimeout(fallbackShowTimer);
     const showAndFocus = () => {
       if (!mainWindow) return;
       mainWindow.maximize();
@@ -520,7 +545,7 @@ app.whenReady().then(async () => {
   const isRunning = await checkBackendRunning(8000);
   if (!isRunning) {
     startBackend();
-    await waitForBackend(60, 500);
+    await waitForBackend(25, 400);
   } else {
     console.log(
       "[Electron] Backend AI đã được khởi chạy từ trước trên cổng 8000.",
