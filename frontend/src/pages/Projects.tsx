@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useTTSStore } from "../store/useTTSStore";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { ConfirmModal } from "../components/common/ConfirmModal";
 
 export default function Projects() {
   const { projects, addProject, deleteProject, history, cleanupJunkFiles } = useTTSStore();
@@ -9,6 +10,7 @@ export default function Projects() {
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [isCleaning, setIsCleaning] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     // Tự động dọn dẹp nhẹ các file rác cũ hơn 15 phút ở chế độ nền
@@ -110,16 +112,10 @@ export default function Projects() {
                   <button
                     onClick={(e) => {
                       e.preventDefault();
-                      if (
-                        window.confirm(
-                          "Bạn có chắc muốn xóa dự án này? (Các file audio bên trong sẽ không bị xóa mà chỉ bị gỡ khỏi dự án)",
-                        )
-                      ) {
-                        deleteProject(p.id);
-                        toast.success("Đã xóa dự án");
-                      }
+                      setProjectToDelete({ id: p.id, name: p.name });
                     }}
-                    className="w-8 h-8 rounded hover:bg-error/20 hover:text-error text-on-surface-variant flex items-center justify-center transition-colors"
+                    className="w-8 h-8 rounded-lg hover:bg-red-500/15 text-on-surface-variant hover:text-red-400 flex items-center justify-center transition-colors cursor-pointer"
+                    title="Xóa dự án"
                   >
                     <span className="material-symbols-outlined text-[18px]">
                       delete
@@ -208,6 +204,20 @@ export default function Projects() {
           </div>
         </div>
       )}
+      {/* Modal xác nhận xóa dự án */}
+      <ConfirmModal
+        isOpen={Boolean(projectToDelete)}
+        title="Xác nhận xóa dự án"
+        message={`Bạn có chắc muốn xóa dự án "${projectToDelete?.name}"? (Các file audio bên trong sẽ không bị xóa mà chỉ bị gỡ khỏi dự án)`}
+        onConfirm={() => {
+          if (projectToDelete) {
+            deleteProject(projectToDelete.id);
+            toast.success("Đã xóa dự án thành công!");
+            setProjectToDelete(null);
+          }
+        }}
+        onCancel={() => setProjectToDelete(null)}
+      />
     </div>
   );
 }

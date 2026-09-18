@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { globalAudio } from "../../utils/audioCoordinator";
+import { ConfirmModal } from "../common/ConfirmModal";
 
 interface BGMTrack {
   id: string;
@@ -55,6 +56,7 @@ export const BGMMixModal: React.FC<BGMMixModalProps> = ({
 
   // Audio preview playback state
   const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
+  const [trackToDelete, setTrackToDelete] = useState<{ id: string; name: string } | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
@@ -211,12 +213,14 @@ export const BGMMixModal: React.FC<BGMMixModalProps> = ({
     }
   };
 
-  const handleDeleteTrack = async (trackId: string, trackName: string, e: React.MouseEvent) => {
+  const handleDeleteTrack = (trackId: string, trackName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`Bạn có chắc chắn muốn xóa bản nhạc "${trackName}" khỏi thư viện?`)) {
-      return;
-    }
+    setTrackToDelete({ id: trackId, name: trackName });
+  };
 
+  const confirmDeleteTrack = async () => {
+    if (!trackToDelete) return;
+    const { id: trackId, name: trackName } = trackToDelete;
     try {
       const res = await fetch(`http://localhost:8000/api/bgm/${trackId}`, {
         method: "DELETE",
@@ -235,6 +239,7 @@ export const BGMMixModal: React.FC<BGMMixModalProps> = ({
         stopPreview();
       }
       toast.success(`Đã xóa bản nhạc "${trackName}"`);
+      setTrackToDelete(null);
     } catch (err: any) {
       console.error("Lỗi xóa BGM:", err);
       toast.error(err.message || "Không thể xóa bản nhạc.");
@@ -630,6 +635,15 @@ export const BGMMixModal: React.FC<BGMMixModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Modal xác nhận xóa track BGM */}
+      <ConfirmModal
+        isOpen={Boolean(trackToDelete)}
+        title="Xác nhận xóa nhạc nền"
+        message={`Bạn có chắc chắn muốn xóa bản nhạc "${trackToDelete?.name}" khỏi thư viện?`}
+        onConfirm={confirmDeleteTrack}
+        onCancel={() => setTrackToDelete(null)}
+      />
     </div>
   );
 };

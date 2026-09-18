@@ -18,7 +18,7 @@ import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../
 import { ScriptBlockItem } from "../components/project/ScriptBlockItem";
 import { SmartSplitModal } from "../components/project/SmartSplitModal";
 import { MasterAudioBar } from "../components/project/MasterAudioBar";
-import { AudioRecordItem } from "./Library";
+import { AudioRecordItem } from "../components/library/AudioRecordItem";
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
