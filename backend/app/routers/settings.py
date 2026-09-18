@@ -173,6 +173,25 @@ async def save_settings(payload: SettingsPayload):
         os.environ["R2_BUCKET_NAME"] = payload.r2_bucket_name or ""
         os.environ["R2_PUBLIC_URL"] = payload.r2_public_url or ""
 
+        # Làm mới runtime config và kết nối Database trực tiếp
+        try:
+            import app.core.config as cfg
+            cfg.MONGODB_URI = payload.mongodb_uri or ""
+            cfg.MONGODB_DB_NAME = payload.mongodb_db_name or "omnivoice_tts"
+            cfg.R2_ACCOUNT_ID = payload.r2_account_id or ""
+            cfg.R2_ACCESS_KEY_ID = payload.r2_access_key_id or ""
+            cfg.R2_SECRET_ACCESS_KEY = payload.r2_secret_access_key or ""
+            cfg.R2_BUCKET_NAME = payload.r2_bucket_name or ""
+            cfg.R2_PUBLIC_URL = (payload.r2_public_url or "").rstrip("/")
+            cfg.DEFAULT_NUM_STEP = payload.default_num_step
+
+            from app.core.database import close_db, connect_db
+            await close_db()
+            if cfg.MONGODB_URI:
+                await connect_db()
+        except Exception as reload_err:
+            logger.warning(f"[Settings] Cảnh báo làm mới cấu hình bộ nhớ: {reload_err}")
+
         logger.info("[Settings] Đã cập nhật thành công cấu hình hệ thống vào .env!")
         return {"success": True, "message": "Đã lưu thành công toàn bộ cấu hình hệ thống!"}
 
