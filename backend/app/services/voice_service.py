@@ -11,9 +11,36 @@ from fastapi import HTTPException, UploadFile, BackgroundTasks
 import soundfile as sf
 import numpy as np
 
+try:
+    import librosa
+except ImportError:
+    librosa = None
+
+
+def _load_audio_resampled(file_path: Path | str, target_sr: int = 24000, duration: float | None = None):
+    """Nạp audio và resample về target_sr mono an toàn, hỗ trợ cả librosa và soundfile"""
+    if librosa is not None:
+        return librosa.load(str(file_path), sr=target_sr, duration=duration)
+
+    y, sr = sf.read(str(file_path))
+    if y.ndim > 1:
+        y = np.mean(y, axis=1)
+    if duration is not None:
+        max_len = int(sr * duration)
+        y = y[:max_len]
+    if sr != target_sr:
+        try:
+            from scipy.signal import resample
+            num_samples = int(len(y) * target_sr / sr)
+            y = resample(y, num_samples).astype(np.float32)
+        except Exception:
+            pass
+    return y.astype(np.float32), target_sr
+
 from app.core.config import (
     BASE_DIR,
     OUTPUTS_DIR,
+    SYSTEM_PRESETS_DIR,
     PRESETS_DIR,
     CUSTOM_VOICES_DIR,
     CUSTOM_VOICES_JSON,
@@ -41,14 +68,27 @@ _RANDOM_STYLE = [
 async def fetch_all_voices() -> list[dict]:
     voices = []
     voices_json = PRESETS_DIR / "voices.json"
-    if voices_json.exists():
-        with open(voices_json, "r", encoding="utf-8") as f:
-            voices.extend(json.load(f))
+    if not voices_json.exists() and SYSTEM_PRESETS_DIR.exists():
+        voices_json = SYSTEM_PRESETS_DIR / "voices.json"
 
-    if CUSTOM_VOICES_JSON.exists():
-        with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
-            custom_voices = json.load(f)
-            voices.extend(custom_voices)
+    if voices_json.exists():
+        try:
+            with open(voices_json, "r", encoding="utf-8") as f:
+                voices.extend(json.load(f))
+        except Exception as e:
+            logger.warning(f"Lỗi khi nạp voices.json: {e}")
+
+    cv_json = CUSTOM_VOICES_JSON
+    if not cv_json.exists() and (SYSTEM_PRESETS_DIR / "custom_voices.json").exists():
+        cv_json = SYSTEM_PRESETS_DIR / "custom_voices.json"
+
+    if cv_json.exists():
+        try:
+            with open(cv_json, "r", encoding="utf-8") as f:
+                custom_voices = json.load(f)
+                voices.extend(custom_voices)
+        except Exception as e:
+            logger.warning(f"Lỗi khi nạp custom_voices.json: {e}")
 
     return voices
 
@@ -110,7 +150,7 @@ async def clone_custom_voice(
                 shutil.copyfileobj(f.file, buffer)
 
             # Load audio về 24,000Hz mono
-            y, _ = librosa.load(str(temp_path), sr=SAMPLE_RATE)
+            y, _ = _load_audio_resampled(str(temp_path), target_sr=SAMPLE_RATE)
             if len(y) > 0:
                 # Nếu yêu cầu tách nhạc nền hoặc khử ồn
                 if isolate_vocal or denoise:
@@ -362,7 +402,7 @@ async def save_preview_as_custom_voice(
     pt_path = CUSTOM_VOICES_DIR / f"{custom_id}.pt"
 
     try:
-        y, sr_loaded = librosa.load(str(src_path), sr=SAMPLE_RATE, duration=15.0)
+        y, sr_loaded = _load_audio_resampled(str(src_path), target_sr=SAMPLE_RATE, duration=15.0)
         sf.write(str(wav_path), y, sr_loaded)
 
         has_pt = False

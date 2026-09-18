@@ -175,8 +175,14 @@ export default function CloningVoice() {
   // ── Preview Sample Audio ──────────────────────────────────────────────────
   const stopSamplePreview = () => {
     if (previewAudioRef.current) {
-      previewAudioRef.current.pause();
-      previewAudioRef.current.currentTime = 0;
+      // Huỷ bỏ các event listener để tránh sự kiện abort kích hoạt toast giả khi đổi trang hoặc dừng
+      previewAudioRef.current.onended = null;
+      previewAudioRef.current.onerror = null;
+      try {
+        previewAudioRef.current.pause();
+        previewAudioRef.current.currentTime = 0;
+      } catch {}
+      previewAudioRef.current = null;
     }
     setPlayingSampleId(null);
   };
@@ -191,17 +197,32 @@ export default function CloningVoice() {
     stopSamplePreview();
     const audio = new Audio(sample.audioUrl);
     previewAudioRef.current = audio;
-    globalAudio.play(audio);
 
-    audio.onended = () => setPlayingSampleId(null);
+    globalAudio.play(audio, () => {
+      setPlayingSampleId(null);
+    });
+
+    audio.onended = () => {
+      setPlayingSampleId(null);
+      if (previewAudioRef.current === audio) {
+        previewAudioRef.current = null;
+      }
+    };
+
     audio.onerror = () => {
-      toast.error(`Không thể phát mẫu: ${sample.name}`);
+      // Chỉ hiện toast khi audio thực sự bị lỗi phát, không báo lỗi khi bị ngắt do chuyển tab hoặc dừng cố ý
+      if (previewAudioRef.current === audio && !audio.paused) {
+        toast.error(`Không thể phát mẫu: ${sample.name}`);
+      }
       setPlayingSampleId(null);
     };
 
     audio.play().then(() => {
       setPlayingSampleId(sample.id);
-    }).catch(() => {
+    }).catch((err) => {
+      if (err?.name !== "AbortError") {
+        console.warn("Không thể phát sample audio:", err);
+      }
       setPlayingSampleId(null);
     });
   };

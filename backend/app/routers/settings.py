@@ -174,6 +174,8 @@ async def save_settings(payload: SettingsPayload):
         os.environ["R2_PUBLIC_URL"] = payload.r2_public_url or ""
 
         # Làm mới runtime config và kết nối Database trực tiếp
+        db_connected = False
+        r2_connected = False
         try:
             import app.core.config as cfg
             cfg.MONGODB_URI = payload.mongodb_uri or ""
@@ -188,12 +190,22 @@ async def save_settings(payload: SettingsPayload):
             from app.core.database import close_db, connect_db
             await close_db()
             if cfg.MONGODB_URI:
-                await connect_db()
+                db_connected = await connect_db()
+
+            from app.core.storage_r2 import reset_r2_client, get_r2_client, is_r2_configured
+            reset_r2_client()
+            if is_r2_configured():
+                r2_connected = get_r2_client() is not None
         except Exception as reload_err:
             logger.warning(f"[Settings] Cảnh báo làm mới cấu hình bộ nhớ: {reload_err}")
 
-        logger.info("[Settings] Đã cập nhật thành công cấu hình hệ thống vào .env!")
-        return {"success": True, "message": "Đã lưu thành công toàn bộ cấu hình hệ thống!"}
+        logger.info(f"[Settings] Đã cập nhật cấu hình hệ thống! DB: {db_connected}, R2: {r2_connected}")
+        return {
+            "success": True,
+            "message": "Đã lưu và cập nhật kết nối cơ sở dữ liệu thành công!",
+            "db_connected": db_connected,
+            "r2_connected": r2_connected,
+        }
 
     except Exception as e:
         logger.error(f"[Settings] Lỗi khi lưu cấu hình: {e}")

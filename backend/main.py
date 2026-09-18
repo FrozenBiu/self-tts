@@ -8,21 +8,45 @@ Swagger UI:
     http://localhost:8000/docs
 """
 
+import os
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.core.config import OUTPUTS_DIR, PRESETS_DIR, logger
+from app.core.config import OUTPUTS_DIR, PRESETS_DIR, SYSTEM_PRESETS_DIR, sync_system_presets, logger
 from app.core.database import connect_db, close_db
 from app.routers import api_router
 from model_handler import load_model
+
+
+class DualStaticFiles(StaticFiles):
+    """StaticFiles với cơ chế tự động tìm kiếm fallback ở SYSTEM_PRESETS_DIR nếu file chưa có ở PRESETS_DIR."""
+    def __init__(self, *args, fallback_dir: Path | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fallback_dir = Path(fallback_dir) if fallback_dir else None
+
+    def lookup_path(self, path: str):
+        full_path, stat_result = super().lookup_path(path)
+        if stat_result is not None:
+            return full_path, stat_result
+        if self.fallback_dir and self.fallback_dir.exists():
+            candidate = (self.fallback_dir / path).resolve()
+            try:
+                candidate.relative_to(self.fallback_dir.resolve())
+                if candidate.exists() and candidate.is_file():
+                    return str(candidate), os.stat(str(candidate))
+            except (ValueError, OSError):
+                pass
+        return full_path, stat_result
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load mô hình OmniVoice và kết nối cơ sở dữ liệu nếu có cấu hình."""
     logger.info("🚀 Server đang khởi động — nạp mô hình OmniVoice (24kHz) …")
+    sync_system_presets()
     load_model()
     await connect_db()
     yield
@@ -45,10 +69,7 @@ app = FastAPI(
 # ─── CORS Middleware ──────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origin_regex=".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -56,7 +77,11 @@ app.add_middleware(
 
 # ─── Static Files ─────────────────────────────────────────────────────────────
 app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
-app.mount("/presets", StaticFiles(directory=str(PRESETS_DIR)), name="presets")
+app.mount(
+    "/presets",
+    DualStaticFiles(directory=str(PRESETS_DIR), fallback_dir=SYSTEM_PRESETS_DIR),
+    name="presets",
+)
 
 # ─── Include API Routers ──────────────────────────────────────────────────────
 app.include_router(api_router)

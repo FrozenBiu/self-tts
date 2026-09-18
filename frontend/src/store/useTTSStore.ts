@@ -224,7 +224,9 @@ interface TTSState {
   setAudioFormat: (format: string) => void;
   addHistory: (record: Omit<AudioRecord, "id" | "timestamp">) => void;
   removeHistory: (id: string) => void;
-  fetchVoices: () => Promise<void>;
+  removeMultipleHistory: (ids: string[]) => Promise<void>;
+  updateMultipleRecordProjects: (recordIds: string[], projectId?: string) => void;
+  fetchVoices: (retries?: number, delay?: number) => Promise<void>;
   setSelectedVoiceId: (id: string | null) => void;
   deleteCustomVoice: (id: string) => Promise<void>;
   updateProjectBlocks: (projectId: string, blocks: ScriptBlock[]) => void;
@@ -355,7 +357,9 @@ export const useTTSStore = create<TTSState>((set, get) => {
     isSyncing: false,
     checkStorageStatus: async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/sync/status");
+        const res = await fetch("http://127.0.0.1:8000/api/sync/status").catch(() =>
+          fetch("http://localhost:8000/api/sync/status")
+        );
         if (res.ok) {
           const data: SyncStatus = await res.json();
           set({ syncStatus: data });
@@ -530,7 +534,14 @@ export const useTTSStore = create<TTSState>((set, get) => {
         return { pronunciationWords: updated };
       }),
 
-    voices: [],
+    voices: (() => {
+      try {
+        const cached = localStorage.getItem("tts_cached_voices");
+        return cached ? JSON.parse(cached) : [];
+      } catch {
+        return [];
+      }
+    })(),
     selectedVoiceId: localStorage.getItem("tts_selected_voice") || null,
     pinnedVoices: JSON.parse(localStorage.getItem("tts_pinned_voices") || "[]"),
     projects: JSON.parse(localStorage.getItem("tts_projects") || "[]"),
@@ -618,6 +629,27 @@ export const useTTSStore = create<TTSState>((set, get) => {
           h.id === recordId ? { ...h, projectId } : h,
         );
         localStorage.setItem("tts_history", JSON.stringify(newHistory));
+        return { history: newHistory };
+      });
+    },
+    updateMultipleRecordProjects: (recordIds, projectId) => {
+      set((state) => {
+        const idSet = new Set(recordIds);
+        const newHistory = state.history.map((h) =>
+          idSet.has(h.id) ? { ...h, projectId } : h,
+        );
+        localStorage.setItem("tts_history", JSON.stringify(newHistory));
+
+        if (state.syncStatus.mode === "cloud" && state.syncStatus.mongo_connected) {
+          for (const rec of newHistory.filter((h) => idSet.has(h.id))) {
+            fetch("http://localhost:8000/api/sync/history", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(rec),
+            }).catch(() => {});
+          }
+        }
+
         return { history: newHistory };
       });
     },
@@ -785,36 +817,57 @@ export const useTTSStore = create<TTSState>((set, get) => {
         };
       });
     },
-    fetchVoices: async () => {
+    removeMultipleHistory: async (ids: string[]) => {
+      for (const id of ids) {
+        await get().removeHistory(id);
+      }
+    },
+    fetchVoices: async (retries = 6, delay = 800) => {
       try {
         // Tự động kiểm tra trạng thái lưu trữ / đồng bộ
         get().checkStorageStatus().catch(() => {});
 
-        const res = await fetch("http://localhost:8000/api/voices");
-        if (res.ok) {
+        const res = await fetch("http://127.0.0.1:8000/api/voices")
+          .catch(() => fetch("http://localhost:8000/api/voices"));
+
+        if (res && res.ok) {
           const data: Voice[] = await res.json();
-          const pinned: string[] = get().pinnedVoices || [];
-          const sorted = [...data].sort((a, b) => {
-            const aPinned = pinned.includes(a.id);
-            const bPinned = pinned.includes(b.id);
-            if (aPinned && !bPinned) return -1;
-            if (!aPinned && bPinned) return 1;
-            return 0;
-          });
-          set({ voices: data });
+          if (Array.isArray(data) && data.length > 0) {
+            const pinned: string[] = get().pinnedVoices || [];
+            const sorted = [...data].sort((a, b) => {
+              const aPinned = pinned.includes(a.id);
+              const bPinned = pinned.includes(b.id);
+              if (aPinned && !bPinned) return -1;
+              if (!aPinned && bPinned) return 1;
+              return 0;
+            });
+            set({ voices: data });
 
-          const savedVoiceId = localStorage.getItem("tts_selected_voice");
-          const isValidSaved =
-            savedVoiceId && data.some((v) => v.id === savedVoiceId);
+            try {
+              localStorage.setItem("tts_cached_voices", JSON.stringify(data));
+            } catch {}
 
-          if (isValidSaved) {
-            set({ selectedVoiceId: savedVoiceId });
-          } else if (sorted.length > 0) {
-            set({ selectedVoiceId: sorted[0].id });
+            const savedVoiceId = localStorage.getItem("tts_selected_voice");
+            const isValidSaved =
+              savedVoiceId && data.some((v) => v.id === savedVoiceId);
+
+            if (isValidSaved) {
+              set({ selectedVoiceId: savedVoiceId });
+            } else if (sorted.length > 0 && !get().selectedVoiceId) {
+              set({ selectedVoiceId: sorted[0].id });
+            }
+            return;
           }
         }
       } catch (e) {
-        console.error("Lỗi khi tải danh sách giọng mẫu:", e);
+        console.warn("[Voices] Chưa nạp được danh sách giọng (đang khởi động backend):", e);
+      }
+
+      // Tự động thử lại nếu backend đang trong quá trình khởi động
+      if (retries > 0) {
+        setTimeout(() => {
+          get().fetchVoices(retries - 1, Math.min(delay * 1.5, 3000));
+        }, delay);
       }
     },
 

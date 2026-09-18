@@ -211,11 +211,19 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         </button>
 
         {/* Voice Grid — 6 ô linh hoạt */}
-        {filteredVoices.length === 0 ? (
+        {voices.length === 0 ? (
+          <div className="flex-1 h-36 2k:h-44 flex flex-col items-center justify-center gap-2.5
+            bg-surface-dim/50 rounded-xl border border-white/5">
+            <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <p className="text-on-surface-variant text-xs 2k:text-sm font-label-caps animate-pulse">
+              Đang tải danh sách giọng đọc...
+            </p>
+          </div>
+        ) : filteredVoices.length === 0 ? (
           <div className="flex-1 h-36 2k:h-44 flex items-center justify-center
             bg-surface-dim/50 rounded-xl border border-white/5">
             <p className="text-on-surface-variant text-sm 2k:text-base font-label-caps">
-              Không tìm thấy giọng đọc nào
+              Không tìm thấy giọng đọc phù hợp với bộ lọc
             </p>
           </div>
         ) : (

@@ -68,6 +68,7 @@ export default function Studio() {
   useEffect(() => {
     fetchVoices();
     blocks.initAudio();
+    useTTSStore.getState().checkStorageStatus().catch(() => {});
 
     // Tự động dọn dẹp ghost draft nếu Thư viện đã bị xóa trống và không có audio nào đang mở
     const hist = useTTSStore.getState().history;

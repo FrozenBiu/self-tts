@@ -10,30 +10,35 @@ except ImportError:
     Config = None
     _HAS_BOTO3 = False
 
-from app.core.config import (
-    R2_ACCOUNT_ID,
-    R2_ACCESS_KEY_ID,
-    R2_SECRET_ACCESS_KEY,
-    R2_BUCKET_NAME,
-    R2_PUBLIC_URL,
-    logger,
-)
+import app.core.config as config
+from app.core.config import logger
 
 
 _s3_client = None
 _is_r2_ready = False
 
 
+def reset_r2_client() -> None:
+    """Reset S3 client để nạp lại thông tin cấu hình mới khi người dùng lưu cài đặt."""
+    global _s3_client, _is_r2_ready
+    if _s3_client:
+        try:
+            _s3_client.close()
+        except Exception:
+            pass
+    _s3_client = None
+    _is_r2_ready = False
+
+
 def is_r2_configured() -> bool:
     """Kiểm tra xem các thông tin Cloudflare R2 đã được cấu hình đầy đủ chưa."""
     return bool(
         _HAS_BOTO3
-        and R2_ACCOUNT_ID
-        and R2_ACCESS_KEY_ID
-        and R2_SECRET_ACCESS_KEY
-        and R2_BUCKET_NAME
+        and config.R2_ACCOUNT_ID
+        and config.R2_ACCESS_KEY_ID
+        and config.R2_SECRET_ACCESS_KEY
+        and config.R2_BUCKET_NAME
     )
-
 
 
 def get_r2_client():
@@ -47,17 +52,17 @@ def get_r2_client():
         return _s3_client
 
     try:
-        endpoint_url = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        endpoint_url = f"https://{config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
         _s3_client = boto3.client(
             service_name="s3",
             endpoint_url=endpoint_url,
-            aws_access_key_id=R2_ACCESS_KEY_ID,
-            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            aws_access_key_id=config.R2_ACCESS_KEY_ID,
+            aws_secret_access_key=config.R2_SECRET_ACCESS_KEY,
             region_name="auto",
             config=Config(signature_version="s3v4", retries={"max_attempts": 3, "mode": "standard"}),
         )
         _is_r2_ready = True
-        logger.info(f"✅ Đã cấu hình Cloudflare R2 Storage (Bucket: '{R2_BUCKET_NAME}').")
+        logger.info(f"✅ Đã cấu hình Cloudflare R2 Storage (Bucket: '{config.R2_BUCKET_NAME}').")
         return _s3_client
     except Exception as e:
         logger.warning(f"⚠️ Lỗi khởi tạo Cloudflare R2 client: {e}. Hệ thống sẽ lưu trữ âm thanh cục bộ.")
@@ -90,19 +95,19 @@ def upload_audio_to_r2(
         extra_args = {"ContentType": content_type}
         client.upload_file(
             Filename=str(path),
-            Bucket=R2_BUCKET_NAME,
+            Bucket=config.R2_BUCKET_NAME,
             Key=key,
             ExtraArgs=extra_args,
         )
         logger.info(f"☁️ Đã upload audio lên Cloudflare R2: {key}")
 
-        if R2_PUBLIC_URL:
-            return f"{R2_PUBLIC_URL}/{key}"
+        if config.R2_PUBLIC_URL:
+            return f"{config.R2_PUBLIC_URL}/{key}"
         else:
             # Fallback nếu không có custom domain/public dev URL, sinh presigned URL 7 ngày
             url = client.generate_presigned_url(
                 "get_object",
-                Params={"Bucket": R2_BUCKET_NAME, "Key": key},
+                Params={"Bucket": config.R2_BUCKET_NAME, "Key": key},
                 ExpiresIn=604800,  # 7 ngày
             )
             return url
@@ -133,7 +138,7 @@ def delete_audio_from_r2(key_or_filename: str) -> bool:
 
     deleted = False
     try:
-        client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+        client.delete_object(Bucket=config.R2_BUCKET_NAME, Key=key)
         logger.info(f"🗑️ Đã xóa file trên Cloudflare R2: {key}")
         deleted = True
     except Exception as e:
@@ -144,7 +149,7 @@ def delete_audio_from_r2(key_or_filename: str) -> bool:
     if ext.lower() in (".mp3", ".wav"):
         srt_key = f"{base}.srt"
         try:
-            client.delete_object(Bucket=R2_BUCKET_NAME, Key=srt_key)
+            client.delete_object(Bucket=config.R2_BUCKET_NAME, Key=srt_key)
             logger.info(f"🗑️ Đã xóa file phụ đề trên Cloudflare R2 (nếu có): {srt_key}")
         except Exception:
             pass
@@ -195,7 +200,7 @@ def delete_multiple_from_r2(keys_or_filenames: list[str]) -> int:
         for i in range(0, len(to_delete_objs), 1000):
             chunk = to_delete_objs[i : i + 1000]
             client.delete_objects(
-                Bucket=R2_BUCKET_NAME,
+                Bucket=config.R2_BUCKET_NAME,
                 Delete={"Objects": chunk, "Quiet": True},
             )
             deleted_count += len(chunk)
@@ -221,14 +226,14 @@ def delete_session_from_r2(session_id: str) -> int:
     try:
         paginator = client.get_paginator("list_objects_v2")
         to_delete = []
-        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=prefix):
+        for page in paginator.paginate(Bucket=config.R2_BUCKET_NAME, Prefix=prefix):
             for obj in page.get("Contents", []):
                 to_delete.append({"Key": obj["Key"]})
 
         for i in range(0, len(to_delete), 1000):
             chunk = to_delete[i : i + 1000]
             client.delete_objects(
-                Bucket=R2_BUCKET_NAME,
+                Bucket=config.R2_BUCKET_NAME,
                 Delete={"Objects": chunk, "Quiet": True},
             )
             deleted_count += len(chunk)
@@ -267,7 +272,7 @@ def cleanup_orphan_r2_files(
         freed_bytes = 0
         to_delete = []
 
-        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix="outputs/"):
+        for page in paginator.paginate(Bucket=config.R2_BUCKET_NAME, Prefix="outputs/"):
             for obj in page.get("Contents", []):
                 key = obj.get("Key", "")
                 filename = os.path.basename(key)
@@ -295,7 +300,7 @@ def cleanup_orphan_r2_files(
         for i in range(0, len(to_delete), 1000):
             chunk = to_delete[i : i + 1000]
             client.delete_objects(
-                Bucket=R2_BUCKET_NAME,
+                Bucket=config.R2_BUCKET_NAME,
                 Delete={"Objects": chunk, "Quiet": True},
             )
             deleted_count += len(chunk)

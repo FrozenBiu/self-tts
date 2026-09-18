@@ -18,6 +18,7 @@ from app.core.config import (
     OUTPUTS_DIR,
     CAPTIONS_DIR,
     AUDIOS_DIR,
+    SYSTEM_PRESETS_DIR,
     PRESETS_DIR,
     CUSTOM_VOICES_DIR,
     CUSTOM_VOICES_JSON,
@@ -224,61 +225,83 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
 
     if request.mode == "clone":
         if request.voice_id:
-            custom_pt = CUSTOM_VOICES_DIR / f"{request.voice_id}.pt"
-            preset_pt = PRESETS_DIR / f"{request.voice_id}.pt"
+            # 1. Tìm file prompt .pt theo thứ tự ưu tiên: custom user -> preset user -> custom system -> preset system
+            candidates_pt = [
+                CUSTOM_VOICES_DIR / f"{request.voice_id}.pt",
+                PRESETS_DIR / f"{request.voice_id}.pt",
+                SYSTEM_PRESETS_DIR / "custom" / f"{request.voice_id}.pt",
+                SYSTEM_PRESETS_DIR / f"{request.voice_id}.pt",
+            ]
+            for pt_path in candidates_pt:
+                if pt_path.exists():
+                    try:
+                        voice_clone_prompt = VoiceClonePrompt.load(str(pt_path))
+                        logger.info(f"⚡ Đã nạp cache VoiceClonePrompt từ: {pt_path.name}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"Không thể nạp prompt .pt ({pt_path.name}): {e}")
 
-            if custom_pt.exists():
-                try:
-                    voice_clone_prompt = VoiceClonePrompt.load(str(custom_pt))
-                    logger.info(f"⚡ Đã nạp cache VoiceClonePrompt từ: {custom_pt.name}")
-                except Exception as e:
-                    logger.warning(f"Không thể nạp prompt .pt: {e}")
-
-            elif preset_pt.exists():
-                try:
-                    voice_clone_prompt = VoiceClonePrompt.load(str(preset_pt))
-                    logger.info(f"⚡ Đã nạp cache VoiceClonePrompt preset từ: {preset_pt.name}")
-                except Exception as e:
-                    logger.warning(f"Không thể nạp prompt .pt preset: {e}")
-
+            # 2. Nếu chưa có prompt .pt, tìm file wav trong danh sách voices và tự động trích xuất
             if voice_clone_prompt is None:
                 import json
-                voices_json = PRESETS_DIR / "voices.json"
                 all_voices = []
-                if voices_json.exists():
-                    with open(voices_json, "r", encoding="utf-8") as f:
-                        all_voices.extend(json.load(f))
-                if CUSTOM_VOICES_JSON.exists():
-                    with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
-                        all_voices.extend(json.load(f))
+                for vj_path in [PRESETS_DIR / "voices.json", SYSTEM_PRESETS_DIR / "voices.json"]:
+                    if vj_path.exists():
+                        try:
+                            with open(vj_path, "r", encoding="utf-8") as f:
+                                all_voices.extend(json.load(f))
+                            break
+                        except Exception:
+                            pass
+
+                for cvj_path in [CUSTOM_VOICES_JSON, SYSTEM_PRESETS_DIR / "custom_voices.json"]:
+                    if cvj_path.exists():
+                        try:
+                            with open(cvj_path, "r", encoding="utf-8") as f:
+                                all_voices.extend(json.load(f))
+                            break
+                        except Exception:
+                            pass
 
                 for v in all_voices:
-                    if v["id"] == request.voice_id:
-                        if request.voice_id.startswith("custom_"):
-                            wav_candidate = CUSTOM_VOICES_DIR / f"{v['id']}.wav"
-                        else:
-                            wav_candidate = PRESETS_DIR / f"{v['id']}.wav"
+                    if v.get("id") == request.voice_id:
+                        vid = v["id"]
+                        wav_candidates = [
+                            CUSTOM_VOICES_DIR / f"{vid}.wav",
+                            PRESETS_DIR / f"{vid}.wav",
+                            SYSTEM_PRESETS_DIR / "custom" / f"{vid}.wav",
+                            SYSTEM_PRESETS_DIR / f"{vid}.wav",
+                        ]
+                        for wc in wav_candidates:
+                            if wc.exists():
+                                ref_audio = str(wc)
+                                ref_text = v.get("prompt_text")
 
-                        if wav_candidate.exists():
-                            ref_audio = str(wav_candidate)
-                            ref_text = v.get("prompt_text")
-
-                            try:
-                                prompt_save_path = (
-                                    CUSTOM_VOICES_DIR / f"{v['id']}.pt"
-                                    if request.voice_id.startswith("custom_")
-                                    else PRESETS_DIR / f"{v['id']}.pt"
-                                )
-                                voice_clone_prompt = await asyncio.to_thread(
-                                    create_voice_prompt,
-                                    ref_audio=ref_audio,
-                                    ref_text=ref_text,
-                                )
-                                voice_clone_prompt.save(str(prompt_save_path))
-                                logger.info(f"✨ Đã tự động tạo và lưu cache {prompt_save_path.name}")
-                            except Exception as pe:
-                                logger.warning(f"Không thể tạo trước cache prompt: {pe}")
+                                try:
+                                    prompt_save_path = (
+                                        CUSTOM_VOICES_DIR / f"{vid}.pt"
+                                        if vid.startswith("custom_")
+                                        else PRESETS_DIR / f"{vid}.pt"
+                                    )
+                                    voice_clone_prompt = await asyncio.to_thread(
+                                        create_voice_prompt,
+                                        ref_audio=ref_audio,
+                                        ref_text=ref_text,
+                                    )
+                                    voice_clone_prompt.save(str(prompt_save_path))
+                                    logger.info(f"✨ Đã tự động tạo và lưu cache {prompt_save_path.name}")
+                                except Exception as pe:
+                                    logger.warning(f"Không thể tạo trước cache prompt: {pe}")
+                                break
                         break
+
+            # 3. Kiểm tra an toàn: nếu mode clone mà không tìm thấy bất kỳ mẫu âm thanh hay prompt nào
+            if voice_clone_prompt is None and (not ref_audio or not os.path.exists(ref_audio)):
+                logger.error(f"❌ Không tìm thấy file âm thanh tham chiếu hoặc prompt .pt cho giọng '{request.voice_id}'")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Không tìm thấy mẫu âm thanh tham chiếu cho giọng '{request.voice_id}'. Vui lòng kiểm tra lại file âm thanh của giọng này.",
+                )
 
     try:
         await asyncio.to_thread(

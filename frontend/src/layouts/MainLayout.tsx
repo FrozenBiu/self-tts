@@ -21,10 +21,11 @@ export function MainLayout() {
   const location = useLocation();
   const checkStorageStatus = useTTSStore((state) => state.checkStorageStatus);
 
-  // Tự động kiểm tra trạng thái lưu trữ đám mây / local trên toàn ứng dụng khi tải trang hoặc F5
+  // Tự động kiểm tra trạng thái lưu trữ đám mây / local và nạp giọng mẫu khi khởi động và mỗi khi chuyển trang
   useEffect(() => {
     checkStorageStatus().catch(() => {});
-  }, [checkStorageStatus]);
+    useTTSStore.getState().fetchVoices().catch(() => {});
+  }, [location.pathname, checkStorageStatus]);
 
   // Lưu trạng thái thu nhỏ sidebar vào localStorage để giữ trải nghiệm người dùng
   const [isCollapsed, setIsCollapsed] = useState(() => {

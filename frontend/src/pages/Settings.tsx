@@ -19,6 +19,7 @@ import {
   Server,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useTTSStore } from "@/store/useTTSStore";
 
 interface SettingsData {
   use_remote_gpu: boolean;
@@ -127,17 +128,15 @@ export default function Settings() {
         throw new Error(data.detail || "Không thể lưu cài đặt");
       }
 
-      // Tự động làm mới / restart backend để nhận diện thông số mới nhất
-      if (window.electronAPI?.restartBackend) {
-        toast.loading("Đang lưu cấu hình và làm mới Backend AI...", { id: "save-action" });
-        const ok = await window.electronAPI.restartBackend();
-        if (ok) {
-          toast.success("Đã lưu và làm mới Backend AI thành công!", { id: "save-action" });
-        } else {
-          toast.success("Đã lưu cấu hình hệ thống thành công!", { id: "save-action" });
-        }
+      // Làm mới trạng thái kết nối Cloud Sync trong Store ngay lập tức
+      await useTTSStore.getState().checkStorageStatus();
+
+      if (data.db_connected) {
+        toast.success("Đã lưu và kết nối thành công tới Database đám mây!", { id: "save-action" });
+      } else if (enableCloudSync) {
+        toast.warning("Đã lưu cấu hình, nhưng chưa thể kết nối MongoDB Atlas (đang chạy LocalStorage).", { id: "save-action" });
       } else {
-        toast.success("Đã lưu cấu hình và cập nhật hệ thống thành công!");
+        toast.success("Đã lưu cấu hình hệ thống thành công!", { id: "save-action" });
       }
 
       await fetchSettings();
