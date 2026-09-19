@@ -230,6 +230,10 @@ interface TTSState {
   fetchVoices: (retries?: number, delay?: number) => Promise<void>;
   setSelectedVoiceId: (id: string | null) => void;
   deleteCustomVoice: (id: string) => Promise<void>;
+  updateCustomVoice: (
+    id: string,
+    data: { name?: string; description?: string; gender?: string; icon?: string }
+  ) => Promise<boolean>;
   updateProjectBlocks: (projectId: string, blocks: ScriptBlock[]) => void;
   updateProjectMaster: (
     projectId: string,
@@ -891,6 +895,27 @@ export const useTTSStore = create<TTSState>((set, get) => {
         }
       } catch (e) {
         console.error("Lỗi khi xoá giọng:", e);
+        throw e;
+      }
+    },
+    updateCustomVoice: async (id, data) => {
+      try {
+        const res = await fetch(
+          `http://localhost:8000/api/voices/custom/${id}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || "Không thể cập nhật giọng đọc");
+        }
+        await get().fetchVoices();
+        return true;
+      } catch (e) {
+        console.error("Lỗi khi cập nhật giọng:", e);
         throw e;
       }
     },

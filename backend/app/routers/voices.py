@@ -4,6 +4,7 @@ from app.services.voice_service import (
     fetch_all_voices,
     clone_custom_voice,
     remove_custom_voice,
+    update_custom_voice,
     generate_random_preview,
     discard_preview_voice,
     save_preview_as_custom_voice,
@@ -73,6 +74,27 @@ async def clean_preview_audio(
 @router.delete("/custom/{voice_id}", summary="Xoá giọng đọc tự tạo")
 async def delete_custom_voice(voice_id: str):
     return await remove_custom_voice(voice_id)
+
+
+from pydantic import BaseModel
+
+
+class UpdateCustomVoiceRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    gender: str | None = None
+    icon: str | None = None
+
+
+@router.put("/custom/{voice_id}", summary="Chỉnh sửa thông tin giọng đọc tự tạo")
+async def edit_custom_voice(voice_id: str, req: UpdateCustomVoiceRequest):
+    return await update_custom_voice(
+        voice_id=voice_id,
+        name=req.name,
+        description=req.description,
+        gender=req.gender,
+        icon=req.icon,
+    )
 
 
 from app.schemas.voice import RandomVoiceRequest, RandomVoiceResponse

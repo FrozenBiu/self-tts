@@ -7,6 +7,8 @@ import {
   Play,
   Pause,
   Trash2,
+  Pencil,
+  X,
   Plus,
   Mic,
   Square,
@@ -115,7 +117,7 @@ const getAudioDuration = (file: File): Promise<number> => {
 };
 
 export default function CloningVoice() {
-  const { voices, fetchVoices, deleteCustomVoice } = useTTSStore();
+  const { voices, fetchVoices, deleteCustomVoice, updateCustomVoice } = useTTSStore();
 
   // Multi-sample reference state
   const [samples, setSamples] = useState<AudioSampleItem[]>([]);
@@ -123,6 +125,19 @@ export default function CloningVoice() {
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [recordingCounter, setRecordingCounter] = useState(1);
+
+  // Chỉnh sửa giọng tự tạo state
+  const [editingVoice, setEditingVoice] = useState<{
+    id: string;
+    name: string;
+    description: string;
+    gender: string;
+    icon?: string;
+  } | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editGender, setEditGender] = useState("male");
+  const [isUpdatingVoice, setIsUpdatingVoice] = useState(false);
 
   // Preview playback cho từng sample
   const [playingSampleId, setPlayingSampleId] = useState<string | null>(null);
@@ -167,7 +182,9 @@ export default function CloningVoice() {
     };
   }, []);
 
-  const customVoices = voices.filter((v) => v.type === "custom");
+  const customVoices = voices.filter(
+    (v) => v.type === "custom" || v.id === "custom_fe662990",
+  );
 
   // Tổng thời lượng các mẫu
   const totalDuration = Math.round(samples.reduce((acc, s) => acc + s.duration, 0) * 10) / 10;
@@ -471,6 +488,40 @@ export default function CloningVoice() {
       toast.error(`Lỗi: ${err.message}`, { id: toastId });
     } finally {
       setCleaningSampleIdx(null);
+    }
+  };
+
+  const handleOpenEdit = (voice: any) => {
+    setEditingVoice(voice);
+    setEditName(voice.name || "");
+    setEditDescription(voice.description || "");
+    setEditGender(voice.gender || "male");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingVoice) return;
+    if (!editName.trim()) {
+      toast.error("Vui lòng nhập tên giọng đọc!");
+      return;
+    }
+    setIsUpdatingVoice(true);
+    const toastId = toast.loading("Đang lưu thông tin giọng đọc...");
+    try {
+      const success = await updateCustomVoice(editingVoice.id, {
+        name: editName.trim(),
+        description: editDescription.trim(),
+        gender: editGender,
+      });
+      if (success) {
+        toast.success(`Đã cập nhật thông tin giọng "${editName.trim()}" thành công!`, {
+          id: toastId,
+        });
+        setEditingVoice(null);
+      }
+    } catch (err: any) {
+      toast.error(`Lỗi cập nhật: ${err.message}`, { id: toastId });
+    } finally {
+      setIsUpdatingVoice(false);
     }
   };
 
@@ -1410,14 +1461,24 @@ export default function CloningVoice() {
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(voice.id)}
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors shrink-0"
-                        title="Xoá giọng này"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(voice)}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors"
+                          title="Chỉnh sửa giọng này"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(voice.id)}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors"
+                          title="Xoá giọng này"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     <audio
@@ -1433,6 +1494,124 @@ export default function CloningVoice() {
           </div>
         </div>
       </div>
+
+      {/* Modal Chỉnh Sửa Giọng Tự Tạo */}
+      {editingVoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-surface-dim border border-white/15 rounded-2xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-5 relative">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[22px]">
+                  edit_note
+                </span>
+                <h3 className="font-label-caps text-base text-on-surface font-semibold">
+                  Chỉnh sửa giọng đọc
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingVoice(null)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-white/10 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="text-xs font-label-caps text-on-surface-variant mb-1.5 block font-medium">
+                  Tên giọng đọc
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Nhập tên giọng đọc..."
+                  className="w-full px-3 py-2 bg-surface-bright/50 border border-white/10 rounded-xl text-sm text-on-surface focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-label-caps text-on-surface-variant mb-1.5 block font-medium">
+                  Mô tả phong cách
+                </label>
+                <input
+                  type="text"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Ví dụ: Giọng tự tạo, Thuyết minh, Podcast..."
+                  className="w-full px-3 py-2 bg-surface-bright/50 border border-white/10 rounded-xl text-sm text-on-surface focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-label-caps text-on-surface-variant mb-1.5 block font-medium">
+                  Giới tính giọng
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditGender("male")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-label-caps font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                      editGender === "male"
+                        ? "bg-primary/20 border-primary text-primary shadow-sm"
+                        : "bg-surface-bright/30 border-white/10 text-on-surface-variant hover:text-on-surface"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">
+                      male
+                    </span>
+                    Nam
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditGender("female")}
+                    className={`py-2 px-3 rounded-xl border text-xs font-label-caps font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                      editGender === "female"
+                        ? "bg-primary/20 border-primary text-primary shadow-sm"
+                        : "bg-surface-bright/30 border-white/10 text-on-surface-variant hover:text-on-surface"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">
+                      female
+                    </span>
+                    Nữ
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setEditingVoice(null)}
+                className="px-4 py-2 text-xs font-label-caps text-on-surface-variant hover:text-on-surface hover:bg-white/5 rounded-xl transition-colors"
+                disabled={isUpdatingVoice}
+              >
+                Huỷ
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={isUpdatingVoice}
+                className="px-5 py-2 bg-primary hover:bg-primary-hover text-black font-semibold text-xs font-label-caps rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isUpdatingVoice ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Đang lưu...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Lưu thay đổi
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

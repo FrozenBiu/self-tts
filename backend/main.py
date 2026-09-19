@@ -21,6 +21,55 @@ from app.routers import api_router
 from model_handler import load_model
 
 
+def _safe_lookup(directory: Path | str, subpath: str) -> tuple[str, os.stat_result | None]:
+    if not subpath or subpath.startswith(("/", "\\")):
+        return "", None
+    dir_path = os.path.realpath(str(directory))
+    full_path = os.path.realpath(os.path.join(dir_path, subpath))
+    try:
+        if os.path.commonpath([full_path, dir_path]) != dir_path:
+            return "", None
+        if os.path.isfile(full_path):
+            return full_path, os.stat(full_path)
+    except (ValueError, OSError):
+        pass
+    return "", None
+
+
+class OutputsStaticFiles(StaticFiles):
+    """
+    StaticFiles thông minh phục vụ thư mục /outputs:
+    - Nếu request bắt đầu bằng "audios/": ưu tiên tìm trong AUDIOS_DIR (hỗ trợ CUSTOM_AUDIOS_DIR tùy biến),
+      fallback sang OUTPUTS_DIR / "audios".
+    - Nếu request bắt đầu bằng "captions/": ưu tiên tìm trong CAPTIONS_DIR (hỗ trợ CUSTOM_VIDEOS_DIR tùy biến),
+      fallback sang OUTPUTS_DIR / "captions".
+    - Các file khác: tìm trong OUTPUTS_DIR.
+    """
+    def lookup_path(self, path: str) -> tuple[str, os.stat_result | None]:
+        clean_path = path.replace("\\", "/").lstrip("/")
+        if clean_path.startswith("audios/"):
+            sub_path = clean_path[len("audios/"):]
+            from app.core.config import AUDIOS_DIR, OUTPUTS_DIR
+            full, stat_res = _safe_lookup(AUDIOS_DIR, sub_path)
+            if stat_res is not None:
+                return full, stat_res
+            full, stat_res = _safe_lookup(OUTPUTS_DIR / "audios", sub_path)
+            if stat_res is not None:
+                return full, stat_res
+
+        elif clean_path.startswith("captions/"):
+            sub_path = clean_path[len("captions/"):]
+            from app.core.config import CAPTIONS_DIR, OUTPUTS_DIR
+            full, stat_res = _safe_lookup(CAPTIONS_DIR, sub_path)
+            if stat_res is not None:
+                return full, stat_res
+            full, stat_res = _safe_lookup(OUTPUTS_DIR / "captions", sub_path)
+            if stat_res is not None:
+                return full, stat_res
+
+        return super().lookup_path(path)
+
+
 class DualStaticFiles(StaticFiles):
     """StaticFiles với cơ chế tự động tìm kiếm fallback ở SYSTEM_PRESETS_DIR nếu file chưa có ở PRESETS_DIR."""
     def __init__(self, *args, fallback_dir: Path | None = None, **kwargs):
@@ -76,7 +125,7 @@ app.add_middleware(
 )
 
 # ─── Static Files ─────────────────────────────────────────────────────────────
-app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
+app.mount("/outputs", OutputsStaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
 app.mount(
     "/presets",
     DualStaticFiles(directory=str(PRESETS_DIR), fallback_dir=SYSTEM_PRESETS_DIR),

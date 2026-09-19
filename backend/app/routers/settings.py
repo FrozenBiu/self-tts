@@ -187,6 +187,16 @@ async def save_settings(payload: SettingsPayload):
             cfg.R2_PUBLIC_URL = (payload.r2_public_url or "").rstrip("/")
             cfg.DEFAULT_NUM_STEP = payload.default_num_step
 
+            if payload.audios_dir:
+                cfg.AUDIOS_DIR = Path(payload.audios_dir)
+            else:
+                cfg.AUDIOS_DIR = cfg.OUTPUTS_DIR / "audios"
+
+            if payload.videos_dir:
+                cfg.CAPTIONS_DIR = Path(payload.videos_dir)
+            else:
+                cfg.CAPTIONS_DIR = cfg.OUTPUTS_DIR / "captions"
+
             from app.core.database import close_db, connect_db
             await close_db()
             if cfg.MONGODB_URI:

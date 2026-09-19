@@ -34,3 +34,6 @@ release/
 *.log
 *.tmp
 *.bak
+
+# ── Workspace ────────────────────────────────────
+.vscode/

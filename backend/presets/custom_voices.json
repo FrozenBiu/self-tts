@@ -15,7 +15,11 @@
     "description": "Giọng tự tạo",
     "icon": "record_voice_over",
     "prompt_text": "Với thu nhập hiện nay là sáu triệu đồng, tức ba trăm đô la Mỹ, ở Sài Gòn",
-    "url": "http://localhost:8000/presets/custom/custom_fe662990.wav"
+    "url": "http://localhost:8000/presets/custom/custom_fe662990.wav",
+    "type": "custom",
+    "has_cache_pt": true,
+    "samples_count": 1,
+    "duration": 5.0
   },
   {
     "id": "custom_0bc4de90",

@@ -287,6 +287,49 @@ async def remove_custom_voice(voice_id: str) -> dict:
     raise HTTPException(status_code=404, detail="Không tìm thấy giọng đọc")
 
 
+async def update_custom_voice(
+    voice_id: str,
+    name: str | None = None,
+    description: str | None = None,
+    gender: str | None = None,
+    icon: str | None = None,
+) -> dict:
+    if not voice_id.startswith("custom_"):
+        raise HTTPException(status_code=400, detail="Chỉ được phép chỉnh sửa giọng tự tạo")
+
+    if not CUSTOM_VOICES_JSON.exists():
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh sách giọng đọc")
+
+    with open(CUSTOM_VOICES_JSON, "r", encoding="utf-8") as f:
+        custom_voices = json.load(f)
+
+    updated_voice = None
+    for v in custom_voices:
+        if v.get("id") == voice_id:
+            if name is not None and name.strip():
+                v["name"] = name.strip()
+            if description is not None:
+                v["description"] = description.strip()
+            if gender is not None and gender.strip():
+                v["gender"] = gender.strip().lower()
+            if icon is not None and icon.strip():
+                v["icon"] = icon.strip()
+            v["type"] = "custom"
+            updated_voice = v
+            break
+
+    if not updated_voice:
+        raise HTTPException(status_code=404, detail="Không tìm thấy giọng đọc cần sửa")
+
+    with open(CUSTOM_VOICES_JSON, "w", encoding="utf-8") as f:
+        json.dump(custom_voices, f, ensure_ascii=False, indent=2)
+
+    return {
+        "message": f"Đã cập nhật giọng đọc '{updated_voice['name']}' thành công!",
+        "voice": updated_voice,
+    }
+
+
 async def generate_random_preview(
     background_tasks: BackgroundTasks,
     req: RandomVoiceRequest | None = None,
