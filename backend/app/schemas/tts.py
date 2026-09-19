@@ -83,6 +83,10 @@ class TTSRequest(BaseModel):
         default=None,
         description="(Tùy chọn) ID phiên âm thanh để lưu trọn gói trong thư mục outputs/audios/{session_id}",
     )
+    bypass_cache: bool = Field(
+        default=False,
+        description="Bỏ qua cache và bắt buộc render lại âm thanh mới từ AI model.",
+    )
 
 
 class TTSResponse(BaseModel):
@@ -131,6 +135,7 @@ class StitchBlockItem(BaseModel):
     filename: str = Field(..., description="Tên file âm thanh trong outputs/ (vd: tts_abc.mp3)")
     pause_after: float = Field(default=0.5, ge=0.0, le=10.0, description="Khoảng lặng sau đoạn tính bằng giây")
     text: str = Field(default="", description="Văn bản của đoạn để sinh phụ đề SRT")
+    volume: float = Field(default=1.0, ge=0.1, le=5.0, description="Hệ số âm lượng cho phân đoạn (0.1x - 5.0x, mặc định 1.0 = 100%)")
 
 
 class StitchRequest(BaseModel):

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useTTSStore, applyPronunciationDictionary, type ScriptBlock } from "../store/useTTSStore";
 import { API_BASE_URL } from "../constants/api";
 import { globalAudio } from "../utils/audioCoordinator";
+import { globalAudioGain } from "../utils/audioGain";
 
 export function useStudioBlocks() {
   const { pronunciationWords, enhanceAudio } = useTTSStore();
@@ -189,7 +190,9 @@ export function useStudioBlocks() {
 
   const initAudio = () => {
     if (!studioSequenceAudioRef.current) {
-      studioSequenceAudioRef.current = new Audio();
+      const a = new Audio();
+      a.crossOrigin = "anonymous";
+      studioSequenceAudioRef.current = a;
     }
   };
 
@@ -243,6 +246,7 @@ export function useStudioBlocks() {
         "Mặc định",
       speed: 1.0,
       pitch: 0.0,
+      volume: 1.0,
       pauseAfter: 0.5,
       status: "idle",
     };
@@ -280,10 +284,11 @@ export function useStudioBlocks() {
   };
 
   const handleUpdateStudioBlock = (blockId: string, updatedFields: Partial<ScriptBlock>) => {
-    // Nếu sửa các thuộc tính cấu hình (speed, pitch, pauseAfter, voiceId), lưu snapshot trước khi sửa
+    // Nếu sửa các thuộc tính cấu hình (speed, pitch, volume, pauseAfter, voiceId), lưu snapshot trước khi sửa
     const isConfigChange =
       updatedFields.speed !== undefined ||
       updatedFields.pitch !== undefined ||
+      updatedFields.volume !== undefined ||
       updatedFields.pauseAfter !== undefined ||
       updatedFields.voiceId !== undefined;
 
@@ -356,6 +361,8 @@ export function useStudioBlocks() {
           enhance_audio: enhanceAudio,
           engine: "omnivoice",
           session_id: savedSessionId,
+          seed: Math.floor(Math.random() * 1000000),
+          bypass_cache: true,
         }),
       });
 
@@ -434,6 +441,7 @@ export function useStudioBlocks() {
           filename: b.filename || b.audioUrl!.split("/").pop()!,
           pause_after: typeof b.pauseAfter === "number" ? b.pauseAfter : pausePeriod,
           text: b.text.trim(),
+          volume: typeof b.volume === "number" ? b.volume : 1.0,
         })),
         format: useTTSStore.getState().audioFormat || "mp3",
         project_name: "Studio_Master",
@@ -487,6 +495,7 @@ export function useStudioBlocks() {
 
     setPlayingStudioBlockId(block.id);
     studioSequenceAudioRef.current.src = block.audioUrl;
+    globalAudioGain.applyVolume(studioSequenceAudioRef.current, block.volume ?? 1.0);
     studioSequenceAudioRef.current.onended = () => setPlayingStudioBlockId(null);
 
     // Dừng các nguồn audio khác (Master audio, Voice sample preview...)

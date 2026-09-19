@@ -218,6 +218,7 @@ export function useStudioGenerate() {
               : "Voice Design",
           speed,
           pitch,
+          volume: 1.0,
           pauseAfter: s.pauseAfter,
           status: "rendering",
         }));
@@ -305,6 +306,7 @@ export function useStudioGenerate() {
                 pause_after:
                   typeof b.pauseAfter === "number" ? b.pauseAfter : pauseSettings.period,
                 text: b.text,
+                volume: typeof b.volume === "number" ? b.volume : 1.0,
               })),
               format: useTTSStore.getState().audioFormat || "mp3",
               project_name: "Studio_Master",

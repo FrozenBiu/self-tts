@@ -38,6 +38,7 @@
         "to": "backend",
         "filter": [
           "**/*",
+          "!.env",
           "!venv/**/*",
           "!outputs/**/*",
           "!local_models/**/*",

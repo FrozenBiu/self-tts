@@ -28,6 +28,7 @@ export interface ScriptBlock {
   voiceName?: string;
   speed: number;
   pitch: number;
+  volume?: number; // Hệ số âm lượng tùy biến (vd: 1.0 = 100%, 0.5 - 1.5)
   pauseAfter: number; // Khoảng lặng sau đoạn tính bằng giây (vd: 0.5)
   status: "idle" | "rendering" | "ready" | "error";
   audioUrl?: string;

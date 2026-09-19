@@ -45,11 +45,8 @@ if (app.isPackaged) {
   try {
     const fs = require("fs");
     if (!fs.existsSync(ENV_PATH)) {
-      const srcEnv = path.join(BACKEND_DIR, ".env");
       const srcEnvExample = path.join(BACKEND_DIR, ".env.example");
-      if (fs.existsSync(srcEnv)) {
-        fs.copyFileSync(srcEnv, ENV_PATH);
-      } else if (fs.existsSync(srcEnvExample)) {
+      if (fs.existsSync(srcEnvExample)) {
         fs.copyFileSync(srcEnvExample, ENV_PATH);
       }
     }
@@ -106,6 +103,11 @@ function startBackend() {
   const pythonBin = getPythonExecutable();
   console.log(`[Electron] Khởi chạy backend với: ${pythonBin}`);
 
+  const pythonDir = path.dirname(pythonBin);
+  const pythonScriptsDir = path.join(pythonDir, "Scripts");
+  const pathSep = process.platform === "win32" ? ";" : ":";
+  const bundledPath = `${pythonDir}${pathSep}${pythonScriptsDir}${pathSep}${process.env.PATH || ""}`;
+
   pythonProcess = spawn(
     pythonBin,
     ["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"],
@@ -115,6 +117,7 @@ function startBackend() {
       windowsHide: true,
       env: {
         ...process.env,
+        PATH: bundledPath,
         PYTHONUTF8: "1",
         PYTHONIOENCODING: "utf-8",
         PYTHONPATH: BACKEND_DIR,
@@ -124,18 +127,30 @@ function startBackend() {
     },
   );
 
+  const logFile = path.join(USER_DATA_DIR, "backend.log");
+  const appendLog = (prefix, data) => {
+    try {
+      const fs = require("fs");
+      fs.appendFileSync(logFile, `[${new Date().toLocaleTimeString()}] ${prefix} ${data.toString()}`);
+    } catch {}
+  };
+  appendLog("[START]", `Khởi chạy backend: ${pythonBin} tại ${BACKEND_DIR}\n`);
+
   pythonProcess.stdout.on("data", (data) => {
     const text = data.toString();
     console.log(`[Backend AI] ${text.trim()}`);
+    appendLog("[STDOUT]", data);
   });
 
   pythonProcess.stderr.on("data", (data) => {
     const text = data.toString();
     console.warn(`[Backend AI Error] ${text.trim()}`);
+    appendLog("[STDERR]", data);
   });
 
   pythonProcess.on("close", (code) => {
     console.log(`[Backend AI] Tiến trình đã dừng với mã: ${code}`);
+    appendLog("[EXIT]", `Code: ${code}\n`);
     pythonProcess = null;
   });
 }
@@ -545,7 +560,7 @@ app.whenReady().then(async () => {
   const isRunning = await checkBackendRunning(8000);
   if (!isRunning) {
     startBackend();
-    await waitForBackend(25, 400);
+    await waitForBackend(60, 500);
   } else {
     console.log(
       "[Electron] Backend AI đã được khởi chạy từ trước trên cổng 8000.",

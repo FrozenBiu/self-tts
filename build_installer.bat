@@ -8,6 +8,10 @@ echo     OMNIVOICE STUDIO - TRINH DONG GOI BO CAI DAT WINDOWS (.EXE NSIS)
 echo ===============================================================================
 echo.
 
+:: Dong cac tien trinh OmniVoice dang chay neu co de tranh khoa file
+taskkill /F /IM "OmniVoice Studio.exe" >nul 2>nul
+taskkill /F /IM "electron.exe" >nul 2>nul
+
 :: 1. Kiem tra Node.js & pnpm
 where pnpm >nul 2>nul
 if %errorlevel% neq 0 (
@@ -16,9 +20,11 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: 2. Kiem tra va khoi tao python_runtime neu chua co
-if not exist "%~dp0python_runtime\python.exe" (
-    echo [1/4] Chua tim thay python_runtime. Dang tu dong thiet lap Python Portable...
+:: 2. Kiem tra va khoi tao python_runtime neu chua co hoac bi loi
+echo [1/4] Kiem tra tinh toan ven cua Python Portable runtime...
+"%~dp0python_runtime\python.exe" -c "import _socket, fastapi, uvicorn" >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [1/4] python_runtime chua hoan thien hoac thieu module. Dang thiet lap Python Portable...
     python scripts/setup_embedded_python.py
     if %errorlevel% neq 0 (
         echo [LOI] Thiet lap python_runtime that bai.
@@ -26,7 +32,7 @@ if not exist "%~dp0python_runtime\python.exe" (
         exit /b 1
     )
 ) else (
-    echo [1/4] Python Portable runtime da san sang!
+    echo [1/4] Python Portable runtime da san sang va hoat dong tot!
 )
 echo.
 

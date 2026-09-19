@@ -1,4 +1,4 @@
-#!E:\VisualStudioCode\MyProjects\TTS\python_runtime\python.exe
+#!D:\Coding\VSCode\self-tts\python_runtime\python.exe
 
 import sys
 import json

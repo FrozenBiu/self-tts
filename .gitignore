@@ -9,6 +9,10 @@ Thumbs.db
 # ── Python & Environments ─────────────────────────
 __pycache__/
 *.py[cod]
+!python_runtime/**/*.pyd
+!python_runtime/*.pyd
+python_runtime/ffmpeg.exe
+python_runtime/ffprobe.exe
 backend/venv/
 backend/.env
 backend/local_models/

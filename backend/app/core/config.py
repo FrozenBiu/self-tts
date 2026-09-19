@@ -1,7 +1,14 @@
 import os
+import sys
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Tự động nạp thư mục python.exe vào PATH để luôn tìm thấy ffmpeg/ffprobe nhúng
+_py_dir = str(Path(sys.executable).parent)
+_scripts_dir = str(Path(sys.executable).parent / "Scripts")
+if _py_dir not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = f"{_py_dir};{_scripts_dir};" + os.environ.get("PATH", "")
 
 # Đường dẫn thư mục gốc backend (thư mục chứa main.py)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -33,13 +40,31 @@ OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Thư mục lưu file âm thanh (Audio) - hỗ trợ cấu hình tùy biến
 _custom_audios = os.getenv("CUSTOM_AUDIOS_DIR", "").strip()
-AUDIOS_DIR = Path(_custom_audios) if _custom_audios else (OUTPUTS_DIR / "audios")
-AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
+AUDIOS_DIR = OUTPUTS_DIR / "audios"
+if _custom_audios:
+    try:
+        candidate_audios = Path(_custom_audios)
+        candidate_audios.mkdir(parents=True, exist_ok=True)
+        AUDIOS_DIR = candidate_audios
+    except Exception as e:
+        print(f"[Config Warning] Không thể tạo CUSTOM_AUDIOS_DIR '{_custom_audios}': {e}. Chuyển về mặc định: {AUDIOS_DIR}")
+        AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
+else:
+    AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Thư mục lưu video Auto Caption - hỗ trợ cấu hình tùy biến
 _custom_videos = os.getenv("CUSTOM_VIDEOS_DIR", "").strip()
-CAPTIONS_DIR = Path(_custom_videos) if _custom_videos else (OUTPUTS_DIR / "captions")
-CAPTIONS_DIR.mkdir(parents=True, exist_ok=True)
+CAPTIONS_DIR = OUTPUTS_DIR / "captions"
+if _custom_videos:
+    try:
+        candidate_videos = Path(_custom_videos)
+        candidate_videos.mkdir(parents=True, exist_ok=True)
+        CAPTIONS_DIR = candidate_videos
+    except Exception as e:
+        print(f"[Config Warning] Không thể tạo CUSTOM_VIDEOS_DIR '{_custom_videos}': {e}. Chuyển về mặc định: {CAPTIONS_DIR}")
+        CAPTIONS_DIR.mkdir(parents=True, exist_ok=True)
+else:
+    CAPTIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 SYSTEM_PRESETS_DIR = BASE_DIR / "presets"
 PRESETS_DIR = DATA_DIR / "presets"

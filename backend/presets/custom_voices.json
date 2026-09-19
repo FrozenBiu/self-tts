@@ -3,9 +3,9 @@
     "id": "custom_7fd3a2c1",
     "name": "Minh Quân Pro",
     "gender": "male",
-    "description": "Giọng tự tạo",
+    "description": "Nam - miền bắc",
     "icon": "record_voice_over",
-    "prompt_text": "Xin chào, mình là Minh Quân Pro, một dọc độc được tối ưu cho khả năng có suy trình giữa tiếng việt và tiếng lang.  Với chắc dọc tự nhiên, mượt mà những người thật cùng khả năng chuyển ngữ liền mạc.",
+    "prompt_text": "Xin chào, mình là Minh Quân Pro, một dọc độc được tối ưu cho khả năng code-switching giữa tiếng việt và tiếng lang.  Với chắc dọc tự nhiên, mượt mà những người thật cùng khả năng chuyển ngữ liền mạc.",
     "url": "http://localhost:8000/presets/custom/custom_7fd3a2c1.wav"
   },
   {
@@ -21,7 +21,7 @@
     "id": "custom_0bc4de90",
     "name": "Nhật Phong",
     "gender": "male",
-    "description": "Giọng tự tạo",
+    "description": "Nam - Làm video hướng dẫn",
     "icon": "record_voice_over",
     "prompt_text": "Xin kính chào quý bạn và các vị, mong rằng giọng nói này sẽ phù hợp với bất kỳ dự án nào của bạn. Cảm ơn đã lựa chọn. Hãy thử ngay nhé!",
     "url": "http://localhost:8000/presets/custom/custom_0bc4de90.wav",

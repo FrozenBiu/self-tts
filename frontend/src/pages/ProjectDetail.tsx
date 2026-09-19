@@ -19,6 +19,7 @@ import { ScriptBlockItem } from "../components/project/ScriptBlockItem";
 import { SmartSplitModal } from "../components/project/SmartSplitModal";
 import { MasterAudioBar } from "../components/project/MasterAudioBar";
 import { AudioRecordItem } from "../components/library/AudioRecordItem";
+import { globalAudioGain } from "../utils/audioGain";
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -68,7 +69,9 @@ export default function ProjectDetail() {
 
   // Audio preview instance cho từng block
   useEffect(() => {
-    sequenceAudioRef.current = new Audio();
+    const a = new Audio();
+    a.crossOrigin = "anonymous";
+    sequenceAudioRef.current = a;
 
     return () => {
       if (sequenceAudioRef.current) {
@@ -226,6 +229,8 @@ export default function ProjectDetail() {
           format: "mp3",
           enhance_audio: useTTSStore.getState().enhanceAudio,
           engine: useTTSStore.getState().engine || "omnivoice",
+          seed: Math.floor(Math.random() * 1000000),
+          bypass_cache: true,
         }),
       });
 
@@ -379,6 +384,7 @@ export default function ProjectDetail() {
     setPlayingBlockId(block.id);
 
     sequenceAudioRef.current.src = block.audioUrl;
+    globalAudioGain.applyVolume(sequenceAudioRef.current, block.volume ?? 1.0);
     sequenceAudioRef.current.onended = () => {
       setPlayingBlockId(null);
     };
@@ -423,6 +429,7 @@ export default function ProjectDetail() {
 
     if (sequenceAudioRef.current) {
       sequenceAudioRef.current.src = currentBlock.audioUrl;
+      globalAudioGain.applyVolume(sequenceAudioRef.current, currentBlock.volume ?? 1.0);
       sequenceAudioRef.current.onended = () => {
         // Hết câu này, tạm dừng đúng pauseAfter giây trước khi phát tiếp câu sau
         const pauseMs = Math.max(0, (currentBlock.pauseAfter || 0) * 1000);
@@ -466,6 +473,7 @@ export default function ProjectDetail() {
           filename: b.filename || b.audioUrl!.split("/").pop()!,
           pause_after: b.pauseAfter || 0.5,
           text: b.text.trim(),
+          volume: typeof b.volume === "number" ? b.volume : 1.0,
         })),
         format: "mp3",
         project_name: project.name,

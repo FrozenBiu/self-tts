@@ -35,6 +35,7 @@ PACKAGES = [
     "pydantic>=2.6.0",
     "pydantic-settings>=2.2.0",
     "motor>=3.4.0",
+    "boto3>=1.34.0",
     "soundfile>=0.12.1",
     "numpy>=1.26.0,<2.0.0",
     "scipy>=1.12.0",
@@ -50,7 +51,7 @@ def main():
     python_exe = RUNTIME_DIR / "python.exe"
     if python_exe.exists():
         log("✅ Thư mục python_runtime đã tồn tại. Kiểm tra tính toàn vẹn...")
-        test = subprocess.run([str(python_exe), "-c", "import fastapi, uvicorn, httpx; print('OK')"], capture_output=True, text=True)
+        test = subprocess.run([str(python_exe), "-c", "import _socket, fastapi, uvicorn, httpx; print('OK')"], capture_output=True, text=True)
         if test.returncode == 0 and "OK" in test.stdout:
             log("✅ Python runtime đã sẵn sàng và hoạt động hoàn hảo!")
             return
@@ -74,9 +75,12 @@ def main():
     if pth_file.exists():
         content = pth_file.read_text(encoding="utf-8")
         # Bỏ comment 'import site'
+        new_content = content.replace("#import site", "import site").replace("# import site", "import site")
+        if "import site" not in new_content:
+            new_content += "\nimport site\n"
         # Thêm Lib/site-packages, ../backend, backend nếu chưa có
         for p in ["Lib/site-packages", ".", "../backend", "backend"]:
-            if p not in new_content:
+            if p not in new_content.splitlines():
                 new_content = f"{p}\n" + new_content
         pth_file.write_text(new_content, encoding="utf-8")
         log("✅ Đã cấu hình python310._pth cho phép nạp site-packages và backend.")
@@ -100,6 +104,7 @@ def main():
     log("Đang cài đặt các thư viện Web nhẹ (FastAPI, Uvicorn, Soundfile, HTTPX...)...")
     cmd = [
         str(python_exe), "-m", "pip", "install",
+        "--force-reinstall",
         "--no-warn-script-location",
         "--prefer-binary",
         *PACKAGES

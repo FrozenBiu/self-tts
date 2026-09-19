@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Loader2,
   Download,
+  Volume2,
 } from "lucide-react";
 import type { ScriptBlock, Voice } from "../../store/useTTSStore";
 import { downloadAudioFile } from "../../utils/download";
@@ -82,6 +83,11 @@ export function ScriptBlockItem({
   const isRendering = block.status === "rendering";
   const isReady = block.status === "ready" && !!block.audioUrl;
   const isError = block.status === "error";
+
+  const currentVol = block.volume ?? 1.0;
+  const isVolModified = Math.abs(currentVol - 1.0) > 0.02;
+  const gainDb = 20 * Math.log10(Math.max(currentVol, 0.01));
+  const gainDbFormatted = gainDb >= 0 ? `+${gainDb.toFixed(1)} dB` : `${gainDb.toFixed(1)} dB`;
 
   return (
     <div
@@ -239,20 +245,30 @@ export function ScriptBlockItem({
             <span>s</span>
           </div>
 
-          {/* Tốc độ (Speed & Pitch) gọn */}
+          {/* Tốc độ (Speed, Pitch, Volume) gọn */}
           <button
             type="button"
             onClick={() => setIsEditingSettings(!isEditingSettings)}
-            className={`px-2 py-1 rounded-lg border text-[11px] font-mono-data transition-colors flex items-center gap-1 ${
+            className={`px-2 py-1 rounded-lg border text-[11px] font-mono-data transition-colors flex items-center gap-1.5 ${
               isEditingSettings
                 ? "bg-primary/10 border-primary/40 text-primary"
-                : "bg-surface border-white/10 text-on-surface-variant hover:text-on-surface"
+                : isVolModified
+                  ? "bg-amber-500/10 border-amber-500/40 text-amber-300"
+                  : "bg-surface border-white/10 text-on-surface-variant hover:text-on-surface"
             }`}
-            title="Tùy chỉnh tốc độ và cao độ câu này"
+            title="Tùy chỉnh tốc độ, cao độ và âm lượng câu này"
           >
             <span>{block.speed}x</span>
             <span className="text-[10px] opacity-60">
               {block.pitch >= 0 ? `+${block.pitch}` : block.pitch}st
+            </span>
+            <span className="h-2.5 w-[1px] bg-white/10" />
+            <span className="flex items-center gap-0.5 font-bold">
+              <Volume2 className="w-3 h-3" />
+              {Math.round(currentVol * 100)}%
+              {isVolModified && (
+                <span className="text-[10px] opacity-80 ml-0.5">({gainDbFormatted})</span>
+              )}
             </span>
           </button>
         </div>
@@ -323,53 +339,121 @@ export function ScriptBlockItem({
         </div>
       </div>
 
-      {/* Expanded Settings (Speed & Pitch) */}
+      {/* Expanded Settings (Speed, Pitch, Volume) */}
       {isEditingSettings && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-surface rounded-xl border border-white/5 animate-in fade-in duration-150">
-          {/* Speed slider */}
-          <div className="flex flex-col gap-1">
-            <div className="flex justify-between text-xs text-on-surface-variant font-mono-data">
-              <span>Tốc độ đọc (Speed)</span>
-              <span className="text-primary font-bold">{block.speed}x</span>
+        <div className="flex flex-col gap-3.5 p-3.5 bg-surface rounded-xl border border-white/5 animate-in fade-in duration-150">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Speed slider */}
+            <div className="flex flex-col gap-1">
+              <div className="flex justify-between text-xs text-on-surface-variant font-mono-data">
+                <span>Tốc độ (Speed)</span>
+                <span className="text-primary font-bold">{block.speed}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="2.0"
+                step="0.05"
+                value={block.speed}
+                onChange={(e) =>
+                  onUpdate({
+                    speed: parseFloat(e.target.value),
+                    status: block.status === "ready" ? "idle" : block.status,
+                  })
+                }
+                className="w-full accent-primary h-1.5 bg-surface-dim rounded cursor-pointer"
+              />
             </div>
-            <input
-              type="range"
-              min="0.5"
-              max="2.0"
-              step="0.05"
-              value={block.speed}
-              onChange={(e) =>
-                onUpdate({
-                  speed: parseFloat(e.target.value),
-                  status: block.status === "ready" ? "idle" : block.status,
-                })
-              }
-              className="w-full accent-primary h-1.5 bg-surface-dim rounded cursor-pointer"
-            />
+
+            {/* Pitch slider */}
+            <div className="flex flex-col gap-1">
+              <div className="flex justify-between text-xs text-on-surface-variant font-mono-data">
+                <span>Cao độ (Pitch)</span>
+                <span className="text-primary font-bold">
+                  {block.pitch >= 0 ? `+${block.pitch}` : block.pitch} st
+                </span>
+              </div>
+              <input
+                type="range"
+                min="-12.0"
+                max="12.0"
+                step="0.5"
+                value={block.pitch}
+                onChange={(e) =>
+                  onUpdate({
+                    pitch: parseFloat(e.target.value),
+                    status: block.status === "ready" ? "idle" : block.status,
+                  })
+                }
+                className="w-full accent-primary h-1.5 bg-surface-dim rounded cursor-pointer"
+              />
+            </div>
           </div>
 
-          {/* Pitch slider */}
-          <div className="flex flex-col gap-1">
-            <div className="flex justify-between text-xs text-on-surface-variant font-mono-data">
-              <span>Cao độ (Pitch)</span>
-              <span className="text-primary font-bold">
-                {block.pitch >= 0 ? `+${block.pitch}` : block.pitch} st
+          {/* Volume slider (Gain) & Presets */}
+          <div className="flex flex-col gap-2 pt-2.5 border-t border-white/5">
+            <div className="flex items-center justify-between text-xs font-mono-data">
+              <span className="flex items-center gap-1.5 font-medium text-on-surface">
+                <Volume2 className="w-3.5 h-3.5 text-primary" />
+                Âm lượng phân đoạn (Gain Boost)
               </span>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-[11px] font-bold ${
+                    isVolModified ? "text-amber-400" : "text-on-surface-variant"
+                  }`}
+                >
+                  {gainDbFormatted}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-primary/15 text-primary font-bold text-xs border border-primary/20">
+                  {Math.round(currentVol * 100)}%
+                </span>
+              </div>
             </div>
+
             <input
               type="range"
-              min="-12.0"
-              max="12.0"
-              step="0.5"
-              value={block.pitch}
+              min="0.3"
+              max="3.0"
+              step="0.05"
+              value={currentVol}
               onChange={(e) =>
                 onUpdate({
-                  pitch: parseFloat(e.target.value),
-                  status: block.status === "ready" ? "idle" : block.status,
+                  volume: parseFloat(e.target.value),
                 })
               }
-              className="w-full accent-primary h-1.5 bg-surface-dim rounded cursor-pointer"
+              className="w-full accent-primary h-2 bg-surface-dim rounded cursor-pointer"
+              title="Kéo sang phải để tăng âm lượng (lên đến 300% / +9.5 dB), kéo sang trái để giảm nhỏ"
             />
+
+            {/* Quick Presets */}
+            <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono-data text-on-surface-variant/70 pt-0.5">
+              <span className="text-[10px]">30% (-10dB)</span>
+              <div className="flex flex-wrap items-center gap-1">
+                {[
+                  { label: "70%", val: 0.7 },
+                  { label: "100% Gốc", val: 1.0 },
+                  { label: "150% (+3.5dB)", val: 1.5 },
+                  { label: "200% (+6dB)", val: 2.0 },
+                  { label: "250% (+8dB)", val: 2.5 },
+                  { label: "300% (+9.5dB)", val: 3.0 },
+                ].map((preset) => (
+                  <button
+                    key={preset.val}
+                    type="button"
+                    onClick={() => onUpdate({ volume: preset.val })}
+                    className={`px-2 py-0.5 rounded text-[10px] transition-all ${
+                      Math.abs(currentVol - preset.val) < 0.02
+                        ? "bg-primary text-black font-bold shadow-sm"
+                        : "bg-surface-dim border border-white/10 hover:border-white/20 text-on-surface-variant hover:text-on-surface"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-[10px]">300% (+9.5dB)</span>
+            </div>
           </div>
         </div>
       )}

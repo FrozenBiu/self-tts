@@ -4,6 +4,8 @@ import uuid
 import shutil
 import hashlib
 import time
+import math
+import random
 import unicodedata
 import asyncio
 from datetime import datetime
@@ -141,6 +143,10 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
         f"{request.engine}_{request.text}_{request.mode}_{request.instruct}_{request.voice_id}_"
         f"{request.cfg_value}_{steps}_{request.seed}_{request.speed}_{request.pitch}_{request.format}_{request.enhance_audio}"
     )
+    if request.bypass_cache:
+        entropy = f"{time.time()}_{random.randint(1000, 999999)}"
+        cache_str += f"_{entropy}"
+
     file_hash = hashlib.md5(cache_str.encode("utf-8")).hexdigest()
 
     ext = ".mp3" if request.format == "mp3" else ".wav"
@@ -169,33 +175,9 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
     legacy_output_path = target_dir / f"tts_{file_hash}{ext}"
     root_fallback_path = OUTPUTS_DIR / filename
 
-    if output_path.exists():
-        logger.info(f"⚡ CACHE HIT: Tái sử dụng {filename}")
-        output_path.touch()
-        r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
-        return TTSResponse(
-            message="Tổng hợp thành công (Cache Hit)!",
-            filename=filename,
-            audio_url=r2_url or f"{url_prefix}/{filename}",
-            session_id=session_id,
-        )
-    elif root_fallback_path.exists() and session_id:
-        logger.info(f"⚡ CACHE HIT (Root Cache): Tái sử dụng {filename} từ cache chung")
-        try:
-            shutil.copy2(root_fallback_path, output_path)
-            r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
-            return TTSResponse(
-                message="Tổng hợp thành công (Cache Hit)!",
-                filename=filename,
-                audio_url=r2_url or f"{url_prefix}/{filename}",
-                session_id=session_id,
-            )
-        except Exception as ce:
-            logger.warning(f"Không thể copy từ root cache: {ce}")
-    elif legacy_output_path.exists():
-        logger.info(f"⚡ CACHE HIT (Legacy): Đổi tên {legacy_output_path.name} -> {filename}")
-        try:
-            legacy_output_path.rename(output_path)
+    if not request.bypass_cache:
+        if output_path.exists():
+            logger.info(f"⚡ CACHE HIT: Tái sử dụng {filename}")
             output_path.touch()
             r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
             return TTSResponse(
@@ -204,20 +186,45 @@ async def synthesize_speech(request: TTSRequest, background_tasks: BackgroundTas
                 audio_url=r2_url or f"{url_prefix}/{filename}",
                 session_id=session_id,
             )
-        except Exception as e:
-            logger.warning(f"Không thể đổi tên legacy cache file: {e}")
-            output_path = legacy_output_path
-            filename = legacy_output_path.name
-            legacy_output_path.touch()
-            r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
-            return TTSResponse(
-                message="Tổng hợp thành công (Cache Hit)!",
-                filename=filename,
-                audio_url=r2_url or f"{url_prefix}/{filename}",
-                session_id=session_id,
-            )
+        elif root_fallback_path.exists() and session_id:
+            logger.info(f"⚡ CACHE HIT (Root Cache): Tái sử dụng {filename} từ cache chung")
+            try:
+                shutil.copy2(root_fallback_path, output_path)
+                r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
+                return TTSResponse(
+                    message="Tổng hợp thành công (Cache Hit)!",
+                    filename=filename,
+                    audio_url=r2_url or f"{url_prefix}/{filename}",
+                    session_id=session_id,
+                )
+            except Exception as ce:
+                logger.warning(f"Không thể copy từ root cache: {ce}")
+        elif legacy_output_path.exists():
+            logger.info(f"⚡ CACHE HIT (Legacy): Đổi tên {legacy_output_path.name} -> {filename}")
+            try:
+                legacy_output_path.rename(output_path)
+                output_path.touch()
+                r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
+                return TTSResponse(
+                    message="Tổng hợp thành công (Cache Hit)!",
+                    filename=filename,
+                    audio_url=r2_url or f"{url_prefix}/{filename}",
+                    session_id=session_id,
+                )
+            except Exception as e:
+                logger.warning(f"Không thể đổi tên legacy cache file: {e}")
+                output_path = legacy_output_path
+                filename = legacy_output_path.name
+                legacy_output_path.touch()
+                r2_url = upload_audio_to_r2(output_path, object_key=r2_key)
+                return TTSResponse(
+                    message="Tổng hợp thành công (Cache Hit)!",
+                    filename=filename,
+                    audio_url=r2_url or f"{url_prefix}/{filename}",
+                    session_id=session_id,
+                )
 
-    logger.info(f"⏳ CACHE MISS: Bắt đầu sinh mới {filename}")
+    logger.info(f"⏳ {'CACHE BYPASS (Render lại)' if request.bypass_cache else 'CACHE MISS'}: Bắt đầu sinh mới {filename}")
 
     voice_clone_prompt = None
     ref_audio = request.prompt_wav_path
@@ -660,6 +667,13 @@ def _sync_stitch_audio(
             file_p = OUTPUTS_DIR / safe_name
 
         segment_audio = AudioSegment.from_file(str(file_p))
+
+        # Áp dụng Gain âm lượng tùy biến cho từng phân đoạn nếu có (volume: 0.1 - 3.0, 1.0 = 100%)
+        block_vol = getattr(block, "volume", 1.0) or 1.0
+        if abs(block_vol - 1.0) > 0.01:
+            gain_db = 20.0 * math.log10(max(block_vol, 0.01))
+            segment_audio = segment_audio.apply_gain(gain_db)
+
         duration_sec = len(segment_audio) / 1000.0
 
         # 1. Khử DC Offset & Zero-Crossing Impulse bằng micro fade-in/fade-out (10-20ms)
