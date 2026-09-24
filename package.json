@@ -8,7 +8,9 @@
     "desktop:start": "node electron/start.cjs",
     "desktop:dev": "node electron/dev-runner.cjs",
     "desktop:pack": "pnpm --filter frontend build && node electron/customize-exe.cjs && electron-builder --dir",
+    "desktop:pack:mac": "pnpm --filter frontend build && node electron/customize-exe.cjs && electron-builder --mac --dir",
     "desktop:build": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter frontend build && node electron/customize-exe.cjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
+    "desktop:build:mac": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter frontend build && node electron/customize-exe.cjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
     "build:frontend": "pnpm --filter frontend build"
   },
   "keywords": [
@@ -50,10 +52,6 @@
         "to": "assets"
       },
       {
-        "from": "python_runtime",
-        "to": "python"
-      },
-      {
         "from": "frontend/dist",
         "to": "frontend/dist"
       }
@@ -63,6 +61,12 @@
       "signExecutable": false,
       "target": [
         "nsis"
+      ],
+      "extraResources": [
+        {
+          "from": "python_runtime",
+          "to": "python"
+        }
       ]
     },
     "nsis": {
@@ -74,6 +78,48 @@
       "installerIcon": "assets/app.ico",
       "uninstallerIcon": "assets/app.ico",
       "installerHeaderIcon": "assets/app.ico"
+    },
+    "mac": {
+      "icon": "assets/app.png",
+      "category": "public.app-category.utilities",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "OmniVoice Studio",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     }
   },
   "devDependencies": {

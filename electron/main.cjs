@@ -78,6 +78,28 @@ if (!gotTheLock) {
 // ── 1. Tìm đường dẫn Python ──────────────────────────────────────────────────
 function getPythonExecutable() {
   const fs = require("fs");
+
+  // A. Hỗ trợ macOS (darwin)
+  if (process.platform === "darwin") {
+    // 1. Kiểm tra venv trong backend nếu có
+    const venvPythonMac = path.join(BACKEND_DIR, "venv", "bin", "python3");
+    if (fs.existsSync(venvPythonMac)) return venvPythonMac;
+
+    const venvPythonMacAlt = path.join(BACKEND_DIR, "venv", "bin", "python");
+    if (fs.existsSync(venvPythonMacAlt)) return venvPythonMacAlt;
+
+    // 2. Kiểm tra Homebrew python3 (Apple Silicon & Intel)
+    const brewPythonArm = "/opt/homebrew/bin/python3";
+    if (fs.existsSync(brewPythonArm)) return brewPythonArm;
+
+    const brewPythonIntel = "/usr/local/bin/python3";
+    if (fs.existsSync(brewPythonIntel)) return brewPythonIntel;
+
+    // 3. Fallback sang python3
+    return "python3";
+  }
+
+  // B. Môi trường Windows (Giữ nguyên 100% logic đã có)
   // 1. Kiểm tra python nhúng trong resources (khi chạy từ bộ cài Setup đã cài đặt)
   const bundledPython = path.join(process.resourcesPath, "python", "python.exe");
   if (fs.existsSync(bundledPython)) return bundledPython;
@@ -104,9 +126,14 @@ function startBackend() {
   console.log(`[Electron] Khởi chạy backend với: ${pythonBin}`);
 
   const pythonDir = path.dirname(pythonBin);
-  const pythonScriptsDir = path.join(pythonDir, "Scripts");
   const pathSep = process.platform === "win32" ? ";" : ":";
-  const bundledPath = `${pythonDir}${pathSep}${pythonScriptsDir}${pathSep}${process.env.PATH || ""}`;
+  let bundledPath = process.env.PATH || "";
+  if (process.platform === "win32") {
+    const pythonScriptsDir = path.join(pythonDir, "Scripts");
+    bundledPath = `${pythonDir}${pathSep}${pythonScriptsDir}${pathSep}${bundledPath}`;
+  } else {
+    bundledPath = `${pythonDir}${pathSep}/opt/homebrew/bin${pathSep}/usr/local/bin${pathSep}${bundledPath}`;
+  }
 
   pythonProcess = spawn(
     pythonBin,
@@ -217,7 +244,7 @@ function createMainWindow() {
     minHeight: 940, // Chiều cao tối thiểu bảo đảm toàn bộ giao diện và nút bấm không bị cắt
     center: true,
     backgroundColor: "#09090b",
-    icon: ICON_PATH,
+    icon: process.platform === "win32" ? ICON_PATH : PNG_ICON_PATH,
     title: "OmniVoice Studio (24kHz)",
     frame: false, // Sử dụng thanh tiêu đề tùy biến sang trọng chuẩn Desktop
     show: false, // Ẩn cho đến khi sẵn sàng
@@ -538,7 +565,7 @@ function createSplashWindow() {
     alwaysOnTop: true,
     center: true,
     resizable: false,
-    icon: ICON_PATH,
+    icon: process.platform === "win32" ? ICON_PATH : PNG_ICON_PATH,
     show: true,
     backgroundColor: "#00000000",
     skipTaskbar: true,
@@ -553,6 +580,16 @@ function createSplashWindow() {
 
 // ── 8. Vòng đời Ứng Dụng (App Lifecycle) ──────────────────────────────────────
 app.whenReady().then(async () => {
+  // 0. Thiết lập Dock icon trên macOS
+  if (process.platform === "darwin" && app.dock) {
+    try {
+      const fs = require("fs");
+      if (fs.existsSync(PNG_ICON_PATH)) {
+        app.dock.setIcon(PNG_ICON_PATH);
+      }
+    } catch {}
+  }
+
   // 1. Mở ngay màn hình Splash Loading Screen cho người dùng thấy
   createSplashWindow();
 

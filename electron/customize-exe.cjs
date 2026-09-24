@@ -11,6 +11,11 @@ const ICON_PATH = path.join(ROOT_DIR, "assets", "app.ico");
 const RCEDIT_EXE = path.join(ROOT_DIR, "node_modules", "rcedit", "bin", "rcedit-x64.exe");
 
 async function customize() {
+  if (process.platform !== "win32") {
+    console.log("[Setup] Bỏ qua customize-exe vì không phải hệ điều hành Windows.");
+    return;
+  }
+
   if (!fs.existsSync(ELECTRON_DIST)) {
     console.error("Không tìm thấy thư mục electron dist:", ELECTRON_DIST);
     return;
