@@ -114,16 +114,14 @@ def create_app_icon():
 
     img.alpha_composite(wave_layer)
 
-    # 5. Downsample to 256x256 with high-quality Lanczos for crisp icon
+    # 5. Save 512x512 PNG for macOS and Desktop high-dpi displays
+    img.save("assets/app.png", format="PNG")
+    
+    # Save multi-size ICO for Windows
     icon_img = img.resize((256, 256), Image.Resampling.LANCZOS)
-    
-    # Save PNG
-    icon_img.save("assets/app.png", format="PNG")
-    
-    # Save multi-size ICO
     icon_sizes = [(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)]
     icon_img.save("assets/app.ico", format="ICO", sizes=icon_sizes)
-    print("Successfully generated assets/app.ico and assets/app.png")
+    print("Successfully generated assets/app.ico and assets/app.png (512x512)")
 
 if __name__ == "__main__":
     create_app_icon()

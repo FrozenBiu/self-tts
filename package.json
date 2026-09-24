@@ -10,7 +10,7 @@
     "desktop:pack": "pnpm --filter frontend build && node electron/customize-exe.cjs && electron-builder --dir",
     "desktop:pack:mac": "pnpm --filter frontend build && node electron/customize-exe.cjs && electron-builder --mac --dir",
     "desktop:build": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter frontend build && node electron/customize-exe.cjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder",
-    "desktop:build:mac": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter frontend build && node electron/customize-exe.cjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
+    "desktop:build:mac": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter frontend build && node electron/customize-exe.cjs && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac -p never",
     "build:frontend": "pnpm --filter frontend build"
   },
   "keywords": [
