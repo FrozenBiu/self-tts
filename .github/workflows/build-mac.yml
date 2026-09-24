@@ -1,8 +1,11 @@
 name: Build macOS Application (.dmg)
 
 on:
-  workflow_dispatch: # Cho phép bấm nút "Run workflow" thủ công trên GitHub bất kỳ lúc nào
+  workflow_dispatch: # Cho phép bấm nút "Run workflow" thủ công trên GitHub
   push:
+    branches:
+      - appDesktop
+      - main
     tags:
       - 'v*' # Tự động chạy khi tạo tag release như v1.0.0
 
